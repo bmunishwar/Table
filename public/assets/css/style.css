@@ -1,0 +1,115 @@
+/* ============================================
+   PHP MVC Data Table — Custom Styles
+   ============================================ */
+
+/* --- Loading Overlay --- */
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    min-height: 200px;
+}
+
+/* --- Card --- */
+.card {
+    border-radius: 0.5rem;
+}
+
+.card-body {
+    position: relative;
+    min-height: 200px;
+}
+
+/* --- Sortable Headers --- */
+.sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    transition: background-color 0.15s ease;
+}
+
+.sortable:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.sort-icon::after {
+    content: '\2195';
+    opacity: 0.35;
+    margin-left: 6px;
+    font-size: 0.8em;
+}
+
+.sortable.sort-asc .sort-icon::after {
+    content: '\2191';
+    opacity: 1;
+}
+
+.sortable.sort-desc .sort-icon::after {
+    content: '\2193';
+    opacity: 1;
+}
+
+/* --- Table --- */
+#usersTable tbody tr,
+#mergedTable tbody tr {
+    transition: background-color 0.1s ease;
+}
+
+/* Merged cell vertical alignment */
+td[rowspan] {
+    vertical-align: middle;
+}
+
+/* --- Action Buttons --- */
+.action-btns .btn {
+    padding: 0.2rem 0.45rem;
+    font-size: 0.78rem;
+    margin: 0 1px;
+}
+
+/* --- No Data Row --- */
+.no-data-row td {
+    padding: 2.5rem 1rem;
+    color: #6c757d;
+}
+
+/* --- Search Input --- */
+#searchInput:focus {
+    box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+}
+
+/* --- Pagination --- */
+.pagination .page-link {
+    min-width: 34px;
+    text-align: center;
+    font-size: 0.82rem;
+}
+
+/* --- Summary Row (grouped mode) --- */
+.summary-row td {
+    border-top: 2px solid #dee2e6;
+}
+
+/* --- Responsive adjustments --- */
+@media (max-width: 768px) {
+    .card-header .row > div {
+        justify-content: center !important;
+    }
+
+    .card-footer .row > div {
+        justify-content: center !important;
+        text-align: center;
+    }
+
+    #tableInfo {
+        display: block;
+        margin-bottom: 0.5rem;
+    }
+}
