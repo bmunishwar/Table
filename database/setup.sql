@@ -1,27 +1,32 @@
 -- ============================================
--- PHP MVC Data Table - Database Setup
+-- PHP MVC Data Table - PostgreSQL Setup
 -- ============================================
 
-CREATE DATABASE IF NOT EXISTS table_demo
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Run: psql -U postgres -f setup.sql
+-- Or create the database first, then run the rest:
+--   createdb -U postgres table_demo
+--   psql -U postgres -d table_demo -f setup.sql
 
-USE table_demo;
+-- CREATE DATABASE table_demo;
+-- \c table_demo;
 
 DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
-    id         INT AUTO_INCREMENT PRIMARY KEY,
+    id         SERIAL PRIMARY KEY,
     name       VARCHAR(100) NOT NULL,
     email      VARCHAR(150) NOT NULL,
     mobile     VARCHAR(20)  NOT NULL,
     city       VARCHAR(100) NOT NULL,
-    status     ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_name (name),
-    INDEX idx_email (email),
-    INDEX idx_city (city),
-    INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    status     VARCHAR(10)  NOT NULL DEFAULT 'active'
+                   CHECK (status IN ('active', 'inactive')),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_name   ON users (name);
+CREATE INDEX idx_users_email  ON users (email);
+CREATE INDEX idx_users_city   ON users (city);
+CREATE INDEX idx_users_status ON users (status);
 
 -- Sample data: 35 rows across 8 cities
 INSERT INTO users (name, email, mobile, city, status, created_at) VALUES

@@ -42,7 +42,7 @@ class UserModel
 
         $offset = ($page - 1) * $perPage;
 
-        // Build search condition
+        // Build search condition (ILIKE for case-insensitive PostgreSQL search)
         $whereClause = '';
         $bindings    = [];
 
@@ -51,7 +51,7 @@ class UserModel
             $conditions    = [];
             foreach (self::SEARCHABLE_COLUMNS as $i => $col) {
                 $param          = ":search{$i}";
-                $conditions[]   = "{$col} LIKE {$param}";
+                $conditions[]   = "{$col} ILIKE {$param}";
                 $bindings[$param] = "%{$escapedSearch}%";
             }
             $whereClause = 'WHERE ' . implode(' OR ', $conditions);
@@ -117,7 +117,7 @@ class UserModel
             $conditions    = [];
             foreach (self::SEARCHABLE_COLUMNS as $i => $col) {
                 $param          = ":search{$i}";
-                $conditions[]   = "{$col} LIKE {$param}";
+                $conditions[]   = "{$col} ILIKE {$param}";
                 $bindings[$param] = "%{$escapedSearch}%";
             }
             $whereClause = 'WHERE ' . implode(' OR ', $conditions);
@@ -287,10 +287,11 @@ class UserModel
     }
 
     /**
-     * Escape % and _ for safe use in LIKE clauses.
+     * Escape %, _ and \ for safe use in LIKE/ILIKE clauses.
+     * PostgreSQL uses backslash as the default LIKE escape character.
      */
     private function escapeLikeWildcards(string $value): string
     {
-        return str_replace(['%', '_'], ['\\%', '\\_'], $value);
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
     }
 }
