@@ -102,12 +102,27 @@ class UserModel
 
     /**
      * Fetch users grouped by city with rowspan/colspan metadata.
+     * Supports sorting: rows within each city group are sorted, and
+     * city groups themselves are ordered by the sort column's first value.
      */
     public function getGroupedByCityData(
         int    $page,
         int    $perPage,
-        string $search
+        string $search,
+        string $sortColumn,
+        string $sortOrder
     ): array {
+        // Validate sort column
+        if (!in_array($sortColumn, self::SORTABLE_COLUMNS, true)) {
+            $sortColumn = 'city';
+        }
+
+        // Validate sort order
+        $sortOrder = strtoupper($sortOrder);
+        if (!in_array($sortOrder, ['ASC', 'DESC'], true)) {
+            $sortOrder = 'ASC';
+        }
+
         // Build search condition
         $whereClause = '';
         $bindings    = [];
@@ -140,8 +155,8 @@ class UserModel
             $filteredRecords = $totalRecords;
         }
 
-        // Fetch all matching users ordered by city then name
-        $sql = "SELECT * FROM users {$whereClause} ORDER BY city ASC, name ASC";
+        // Fetch all matching users
+        $sql = "SELECT * FROM users {$whereClause} ORDER BY city ASC, {$sortColumn} {$sortOrder}";
         $stmt = $this->db->prepare($sql);
         foreach ($bindings as $param => $val) {
             $stmt->bindValue($param, $val);
@@ -154,6 +169,38 @@ class UserModel
         foreach ($allRows as $row) {
             $groups[$row['city']][] = $row;
         }
+
+        // Sort rows within each group by the requested column
+        $isAsc = $sortOrder === 'ASC';
+        foreach ($groups as $city => &$cityUsers) {
+            usort($cityUsers, function ($a, $b) use ($sortColumn, $isAsc) {
+                $valA = $a[$sortColumn] ?? '';
+                $valB = $b[$sortColumn] ?? '';
+
+                if (is_numeric($valA) && is_numeric($valB)) {
+                    $cmp = (float) $valA <=> (float) $valB;
+                } else {
+                    $cmp = strnatcasecmp((string) $valA, (string) $valB);
+                }
+
+                return $isAsc ? $cmp : -$cmp;
+            });
+        }
+        unset($cityUsers);
+
+        // Sort city groups by the first row's sort-column value
+        uasort($groups, function ($groupA, $groupB) use ($sortColumn, $isAsc) {
+            $valA = $groupA[0][$sortColumn] ?? '';
+            $valB = $groupB[0][$sortColumn] ?? '';
+
+            if (is_numeric($valA) && is_numeric($valB)) {
+                $cmp = (float) $valA <=> (float) $valB;
+            } else {
+                $cmp = strnatcasecmp((string) $valA, (string) $valB);
+            }
+
+            return $isAsc ? $cmp : -$cmp;
+        });
 
         // Build cell-metadata rows with rowspan + summary rows
         $mergedRows = [];
@@ -209,6 +256,8 @@ class UserModel
             'per_page'         => $perPage,
             'total_pages'      => $totalPages,
             'mode'             => 'grouped',
+            'sort_column'      => $sortColumn,
+            'sort_order'       => strtolower($sortOrder),
         ];
     }
 

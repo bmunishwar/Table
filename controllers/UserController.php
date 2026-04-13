@@ -40,7 +40,7 @@ class UserController
             }
 
             if ($mode === 'grouped') {
-                $result = $this->model->getGroupedByCityData($page, $perPage, $search);
+                $result = $this->model->getGroupedByCityData($page, $perPage, $search, $sortColumn, $sortOrder);
             } else {
                 $result = $this->model->getUsers($page, $perPage, $search, $sortColumn, $sortOrder);
             }

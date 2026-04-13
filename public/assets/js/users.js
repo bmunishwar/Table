@@ -182,16 +182,36 @@
 
     // ---- Grouped Mode Rendering (Rowspan/Colspan) ----
 
+    // Maps grouped column labels to their DB sort keys
+    var groupedColumnSortMap = {
+        'City':       'city',
+        'Name':       'name',
+        'Email':      'email',
+        'Mobile':     'mobile',
+        'Status':     'status',
+        'Created At': 'created_at'
+    };
+
     function renderGroupedHeaders(columns) {
         if (!columns || columns.length === 0) return;
 
         var html = '<tr>';
         for (var i = 0; i < columns.length; i++) {
-            html += '<th>' + escapeHtml(columns[i]) + '</th>';
+            var label   = columns[i];
+            var sortKey = groupedColumnSortMap[label] || '';
+
+            if (sortKey) {
+                html += '<th data-sort="' + sortKey + '" class="sortable">' +
+                        escapeHtml(label) + ' <span class="sort-icon"></span></th>';
+            } else {
+                html += '<th>' + escapeHtml(label) + '</th>';
+            }
         }
         html += '</tr>';
 
         $('#tableHead').html(html);
+        updateSortIndicators();
+        bindSortEvents();
     }
 
     function renderGroupedBody(rows) {
