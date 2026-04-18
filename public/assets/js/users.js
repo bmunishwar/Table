@@ -6,17 +6,15 @@
     'use strict';
 
     // ---- State ----
-    let currentPage   = 1;
+    let currentPage    = 1;
     let perPage        = 10;
     let searchTerm     = '';
     let sortColumn     = 'id';
     let sortDirection  = 'asc';
-    let currentMode    = 'normal'; // 'normal' | 'grouped'
+    let currentMode    = 'normal';
+    let currentColCount = 8;
     let debounceTimer  = null;
-    let activeXhr      = null; // track current AJAX request
-
-    // Column count for the normal table (including Actions)
-    const NORMAL_COL_COUNT = 8;
+    let activeXhr      = null;
 
     // ---- Helpers ----
 
@@ -28,17 +26,28 @@
     }
 
     function formatDate(dateStr) {
-        if (!dateStr) return '';
+        if (!dateStr) return '<span class="text-muted">—</span>';
         var d = new Date(dateStr);
-        if (isNaN(d.getTime())) return escapeHtml(dateStr);
+        if (isNaN(d.getTime())) return '<span class="text-muted">—</span>';
         var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+    }
+
+    function getColCount() {
+        return currentColCount;
+    }
+
+    function emptyStateHtml(icon, text) {
+        return '<tr class="no-data-row"><td colspan="' + getColCount() + '" class="text-center">' +
+               '<div class="empty-state">' +
+               '<i class="bi bi-' + icon + ' empty-state-icon"></i>' +
+               '<span class="empty-state-text">' + escapeHtml(text) + '</span>' +
+               '</div></td></tr>';
     }
 
     // ---- Data Fetching ----
 
     function fetchUsers() {
-        // Abort previous pending request
         if (activeXhr && activeXhr.readyState !== 4) {
             activeXhr.abort();
         }
@@ -61,13 +70,17 @@
             success: function (response) {
                 if (response.error) {
                     showError(response.error);
+                    renderPagination(response);
+                    renderInfo(response);
                     return;
                 }
 
                 if (response.mode === 'grouped') {
+                    currentColCount = (response.columns && response.columns.length) || 6;
                     renderGroupedHeaders(response.columns);
                     renderGroupedBody(response.data);
                 } else {
+                    currentColCount = 8;
                     renderNormalHeaders();
                     renderNormalBody(response.data);
                 }
@@ -77,14 +90,15 @@
             },
             error: function (xhr, status) {
                 if (status === 'abort') return;
-                showError('Failed to load data. Please try again.');
-                $('#tableBody').html(
-                    '<tr class="no-data-row"><td colspan="' + NORMAL_COL_COUNT + '" class="text-center">' +
-                    '<div class="empty-state">' +
-                    '<i class="bi bi-exclamation-circle empty-state-icon"></i>' +
-                    '<span class="empty-state-text">Error loading data</span>' +
-                    '</div></td></tr>'
-                );
+
+                var msg = 'Failed to load data. Please try again.';
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (resp && resp.error) msg = resp.error;
+                } catch (e) { /* use default message */ }
+
+                showError(msg);
+                $('#tableBody').html(emptyStateHtml('exclamation-circle', 'Error loading data'));
                 $('#pagination').empty();
                 $('#tableInfo').text('');
                 $('#totalBadge').text('');
@@ -105,12 +119,21 @@
             method: 'GET',
             dataType: 'json',
             success: function (response) {
+                if (response.error) {
+                    $('#mergedTableBody').html(
+                        '<tr><td colspan="5" class="text-center text-muted py-4">' + escapeHtml(response.error) + '</td></tr>'
+                    );
+                    return;
+                }
                 renderDemoMergedTable(response);
             },
             error: function () {
                 $('#mergedTableBody').html(
                     '<tr><td colspan="5" class="text-center text-muted py-4">' +
-                    '<i class="bi bi-exclamation-circle me-2"></i>Failed to load demo data</td></tr>'
+                    '<div class="empty-state">' +
+                    '<i class="bi bi-exclamation-circle empty-state-icon"></i>' +
+                    '<span class="empty-state-text">Failed to load demo data</span>' +
+                    '</div></td></tr>'
                 );
             },
             complete: function () {
@@ -131,7 +154,7 @@
             '<th data-sort="city" class="sortable">City <span class="sort-icon"></span></th>' +
             '<th data-sort="status" class="sortable">Status <span class="sort-icon"></span></th>' +
             '<th data-sort="created_at" class="sortable">Created <span class="sort-icon"></span></th>' +
-            '<th class="text-center" style="width:140px">Actions</th>' +
+            '<th class="text-center" style="width:130px">Actions</th>' +
             '</tr>';
 
         $('#tableHead').html(headerHtml);
@@ -144,26 +167,22 @@
         tbody.empty();
 
         if (!rows || rows.length === 0) {
-            tbody.html(
-                '<tr class="no-data-row"><td colspan="' + NORMAL_COL_COUNT + '" class="text-center">' +
-                '<div class="empty-state">' +
-                '<i class="bi bi-inbox empty-state-icon"></i>' +
-                '<span class="empty-state-text">No records found</span>' +
-                '</div></td></tr>'
-            );
+            tbody.html(emptyStateHtml('inbox', 'No records found'));
             return;
         }
 
         var html = '';
         for (var i = 0; i < rows.length; i++) {
             var row = rows[i];
+            var safeId = parseInt(row.id, 10);
+            if (isNaN(safeId)) continue;
 
             var statusBadge = row.status === 'active'
                 ? '<span class="status-badge status-active"><span class="status-dot"></span>Active</span>'
                 : '<span class="status-badge status-inactive"><span class="status-dot"></span>Inactive</span>';
 
             html += '<tr>' +
-                '<td><span class="user-id">#' + escapeHtml(row.id) + '</span></td>' +
+                '<td><span class="user-id">#' + safeId + '</span></td>' +
                 '<td><span class="user-name">' + escapeHtml(row.name) + '</span></td>' +
                 '<td><span class="user-email">' + escapeHtml(row.email) + '</span></td>' +
                 '<td>' + escapeHtml(row.mobile) + '</td>' +
@@ -171,13 +190,13 @@
                 '<td>' + statusBadge + '</td>' +
                 '<td><span class="user-date">' + formatDate(row.created_at) + '</span></td>' +
                 '<td class="text-center action-btns">' +
-                    '<button class="action-btn btn-view" onclick="DataTable.viewUser(' + row.id + ')" title="View">' +
+                    '<button class="action-btn btn-view" data-action="view" data-id="' + safeId + '" title="View">' +
                         '<i class="bi bi-eye"></i>' +
                     '</button>' +
-                    '<button class="action-btn btn-edit" onclick="DataTable.editUser(' + row.id + ')" title="Edit">' +
+                    '<button class="action-btn btn-edit" data-action="edit" data-id="' + safeId + '" title="Edit">' +
                         '<i class="bi bi-pencil"></i>' +
                     '</button>' +
-                    '<button class="action-btn btn-delete" onclick="DataTable.deleteUser(' + row.id + ')" title="Delete">' +
+                    '<button class="action-btn btn-delete" data-action="delete" data-id="' + safeId + '" title="Delete">' +
                         '<i class="bi bi-trash3"></i>' +
                     '</button>' +
                 '</td>' +
@@ -189,7 +208,6 @@
 
     // ---- Grouped Mode Rendering (Rowspan/Colspan) ----
 
-    // Maps grouped column labels to their DB sort keys
     var groupedColumnSortMap = {
         'City':       'city',
         'Name':       'name',
@@ -226,45 +244,36 @@
         tbody.empty();
 
         if (!rows || rows.length === 0) {
-            tbody.html(
-                '<tr class="no-data-row"><td colspan="6" class="text-center">' +
-                '<div class="empty-state">' +
-                '<i class="bi bi-inbox empty-state-icon"></i>' +
-                '<span class="empty-state-text">No records found</span>' +
-                '</div></td></tr>'
-            );
+            tbody.html(emptyStateHtml('inbox', 'No records found'));
             return;
         }
 
         var html = '';
         for (var r = 0; r < rows.length; r++) {
             var row = rows[r];
+            if (!Array.isArray(row)) continue;
 
-            // Detect summary rows (rows with colspan covering full width)
-            var isSummary = false;
-            if (row.length === 1 && row[0].colspan) {
-                isSummary = true;
-            }
+            var isSummary = (row.length === 1 && row[0] && row[0].colspan);
 
             html += isSummary ? '<tr class="summary-row">' : '<tr>';
 
             for (var c = 0; c < row.length; c++) {
                 var cell = row[c];
+                if (!cell) continue;
 
-                // Skip cells covered by rowspan/colspan from previous rows/cells
                 if (cell.skip === true) {
                     continue;
                 }
 
                 var attrs = '';
                 if (cell.rowspan && cell.rowspan > 1) {
-                    attrs += ' rowspan="' + cell.rowspan + '"';
+                    attrs += ' rowspan="' + parseInt(cell.rowspan, 10) + '"';
                 }
                 if (cell.colspan && cell.colspan > 1) {
-                    attrs += ' colspan="' + cell.colspan + '"';
+                    attrs += ' colspan="' + parseInt(cell.colspan, 10) + '"';
                 }
                 if (cell['class']) {
-                    attrs += ' class="' + cell['class'] + '"';
+                    attrs += ' class="' + escapeHtml(cell['class']) + '"';
                 }
 
                 var content = '';
@@ -286,7 +295,6 @@
     // ---- Demo Merged Table (Court Schedule) ----
 
     function renderDemoMergedTable(data) {
-        // Headers
         var thead = $('#mergedTableHead');
         var headHtml = '<tr>';
         if (data.columns) {
@@ -297,7 +305,6 @@
         headHtml += '</tr>';
         thead.html(headHtml);
 
-        // Body with rowspan/colspan
         var tbody = $('#mergedTableBody');
         if (!data.data || data.data.length === 0) {
             tbody.html('<tr><td colspan="5" class="text-center text-muted py-4">No demo data</td></tr>');
@@ -307,10 +314,13 @@
         var html = '';
         for (var r = 0; r < data.data.length; r++) {
             var row = data.data[r];
+            if (!Array.isArray(row)) continue;
+
             html += '<tr>';
 
             for (var c = 0; c < row.length; c++) {
                 var cell = row[c];
+                if (!cell) continue;
 
                 if (cell.skip === true) {
                     continue;
@@ -318,13 +328,13 @@
 
                 var attrs = '';
                 if (cell.rowspan && cell.rowspan > 1) {
-                    attrs += ' rowspan="' + cell.rowspan + '"';
+                    attrs += ' rowspan="' + parseInt(cell.rowspan, 10) + '"';
                 }
                 if (cell.colspan && cell.colspan > 1) {
-                    attrs += ' colspan="' + cell.colspan + '"';
+                    attrs += ' colspan="' + parseInt(cell.colspan, 10) + '"';
                 }
                 if (cell['class']) {
-                    attrs += ' class="' + cell['class'] + '"';
+                    attrs += ' class="' + escapeHtml(cell['class']) + '"';
                 }
 
                 var content = '';
@@ -349,18 +359,16 @@
         var pagination = $('#pagination');
         pagination.empty();
 
-        var total  = response.total_pages || 0;
+        var total   = response.total_pages || 0;
         var current = response.current_page || 1;
 
         if (total <= 1) return;
 
         var html = '';
 
-        // Previous
         html += '<li class="page-item ' + (current === 1 ? 'disabled' : '') + '">' +
                 '<a class="page-link" href="#" data-page="' + (current - 1) + '">&laquo;</a></li>';
 
-        // Page numbers with ellipsis
         var pages = generatePageNumbers(current, total);
         for (var i = 0; i < pages.length; i++) {
             var p = pages[i];
@@ -372,7 +380,6 @@
             }
         }
 
-        // Next
         html += '<li class="page-item ' + (current === total ? 'disabled' : '') + '">' +
                 '<a class="page-link" href="#" data-page="' + (current + 1) + '">&raquo;</a></li>';
 
@@ -381,7 +388,7 @@
 
     function generatePageNumbers(current, total) {
         var pages = [];
-        var delta = 2; // pages around current
+        var delta = 2;
 
         var rangeStart = Math.max(2, current - delta);
         var rangeEnd   = Math.min(total - 1, current + delta);
@@ -415,7 +422,6 @@
         var current  = response.current_page || 1;
         var pp       = response.per_page || 10;
 
-        // Update total badge in page header
         $('#totalBadge').text(allTotal + ' users');
 
         if (total === 0) {
@@ -479,27 +485,28 @@
         $('#errorAlert').addClass('d-none');
     }
 
-    // ---- Action Handlers (placeholders) ----
+    // ---- Action Handlers (delegated via data attributes) ----
 
-    window.DataTable = {
-        viewUser: function (id) {
-            alert('View user #' + id + '\n\n(Not implemented — placeholder action)');
-        },
-        editUser: function (id) {
-            alert('Edit user #' + id + '\n\n(Not implemented — placeholder action)');
-        },
-        deleteUser: function (id) {
-            if (confirm('Are you sure you want to delete user #' + id + '?')) {
-                alert('Delete user #' + id + '\n\n(Not implemented — placeholder action)');
-            }
+    function handleAction(action, id) {
+        switch (action) {
+            case 'view':
+                alert('View user #' + id + '\n\n(Not implemented — placeholder action)');
+                break;
+            case 'edit':
+                alert('Edit user #' + id + '\n\n(Not implemented — placeholder action)');
+                break;
+            case 'delete':
+                if (confirm('Are you sure you want to delete user #' + id + '?')) {
+                    alert('Delete user #' + id + '\n\n(Not implemented — placeholder action)');
+                }
+                break;
         }
-    };
+    }
 
     // ---- Event Bindings ----
 
     $(document).ready(function () {
 
-        // Initial load
         fetchUsers();
         fetchDemoMerged();
 
@@ -516,12 +523,12 @@
 
         // Page size change
         $('#pageSize').on('change', function () {
-            perPage     = parseInt($(this).val(), 10);
+            perPage     = parseInt($(this).val(), 10) || 10;
             currentPage = 1;
             fetchUsers();
         });
 
-        // Sort header clicks (delegated, bound initially and after header redraw)
+        // Sort header clicks
         bindSortEvents();
 
         // Pagination clicks (delegated)
@@ -534,6 +541,15 @@
             if (page && page > 0) {
                 currentPage = page;
                 fetchUsers();
+            }
+        });
+
+        // Action buttons (delegated — no inline onclick)
+        $('#tableBody').on('click', '.action-btn', function () {
+            var action = $(this).data('action');
+            var id     = parseInt($(this).data('id'), 10);
+            if (action && !isNaN(id)) {
+                handleAction(action, id);
             }
         });
 
@@ -555,6 +571,14 @@
             $(this).addClass('active');
             $('#modeNormal').removeClass('active');
             fetchUsers();
+        });
+
+        // Keyboard shortcut: "/" focuses search
+        $(document).on('keydown', function (e) {
+            if (e.key === '/' && !$(e.target).is('input, textarea, select')) {
+                e.preventDefault();
+                $('#searchInput').focus();
+            }
         });
     });
 

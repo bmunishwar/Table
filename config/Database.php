@@ -17,20 +17,24 @@ class Database
     {
         if (self::$instance === null) {
             $dsn = sprintf(
-                'pgsql:host=%s;port=%s;dbname=%s',
+                'pgsql:host=%s;port=%s;dbname=%s;connect_timeout=5',
                 self::DB_HOST,
                 self::DB_PORT,
                 self::DB_NAME
             );
 
-            self::$instance = new PDO($dsn, self::DB_USER, self::DB_PASS, [
-                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES   => false,
-            ]);
+            try {
+                self::$instance = new PDO($dsn, self::DB_USER, self::DB_PASS, [
+                    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES   => false,
+                ]);
 
-            // Set client encoding to UTF-8
-            self::$instance->exec("SET client_encoding TO 'UTF8'");
+                self::$instance->exec("SET client_encoding TO 'UTF8'");
+            } catch (\PDOException $e) {
+                error_log('[Database] Connection failed: ' . $e->getMessage());
+                throw new \RuntimeException('Database connection failed.');
+            }
         }
 
         return self::$instance;

@@ -29,6 +29,13 @@ class UserModel
         string $sortColumn,
         string $sortOrder
     ): array {
+        if ($perPage < 1) {
+            $perPage = 10;
+        }
+        if ($page < 1) {
+            $page = 1;
+        }
+
         // Validate sort column
         if (!in_array($sortColumn, self::SORTABLE_COLUMNS, true)) {
             $sortColumn = 'id';
@@ -51,7 +58,7 @@ class UserModel
             $conditions    = [];
             foreach (self::SEARCHABLE_COLUMNS as $i => $col) {
                 $param          = ":search{$i}";
-                $conditions[]   = "{$col} ILIKE {$param}";
+                $conditions[]   = "{$col} ILIKE {$param} ESCAPE '\\'";
                 $bindings[$param] = "%{$escapedSearch}%";
             }
             $whereClause = 'WHERE ' . implode(' OR ', $conditions);
@@ -112,6 +119,13 @@ class UserModel
         string $sortColumn,
         string $sortOrder
     ): array {
+        if ($perPage < 1) {
+            $perPage = 10;
+        }
+        if ($page < 1) {
+            $page = 1;
+        }
+
         // Validate sort column
         if (!in_array($sortColumn, self::SORTABLE_COLUMNS, true)) {
             $sortColumn = 'city';
@@ -132,7 +146,7 @@ class UserModel
             $conditions    = [];
             foreach (self::SEARCHABLE_COLUMNS as $i => $col) {
                 $param          = ":search{$i}";
-                $conditions[]   = "{$col} ILIKE {$param}";
+                $conditions[]   = "{$col} ILIKE {$param} ESCAPE '\\'";
                 $bindings[$param] = "%{$escapedSearch}%";
             }
             $whereClause = 'WHERE ' . implode(' OR ', $conditions);

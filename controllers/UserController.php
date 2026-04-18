@@ -34,7 +34,6 @@ class UserController
             $sortOrder  = (string) ($_GET['sort_order'] ?? 'asc');
             $mode       = (string) ($_GET['mode'] ?? 'normal');
 
-            // Constrain per_page to allowed values
             if (!in_array($perPage, self::ALLOWED_PER_PAGE, true)) {
                 $perPage = 10;
             }
@@ -47,9 +46,15 @@ class UserController
 
             Response::json($result);
         } catch (\Throwable $e) {
+            error_log('[UserController::data] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             Response::json([
-                'error'   => 'An error occurred while fetching data.',
-                'message' => $e->getMessage(),
+                'error' => 'Unable to fetch data. Please try again later.',
+                'data'  => [],
+                'total_records'    => 0,
+                'filtered_records' => 0,
+                'current_page'     => 1,
+                'per_page'         => 10,
+                'total_pages'      => 0,
             ], 500);
         }
     }
@@ -63,9 +68,9 @@ class UserController
             $result = $this->model->getDemoMergedData();
             Response::json($result);
         } catch (\Throwable $e) {
+            error_log('[UserController::demoMerged] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             Response::json([
-                'error'   => 'An error occurred while fetching demo data.',
-                'message' => $e->getMessage(),
+                'error' => 'Unable to fetch demo data. Please try again later.',
             ], 500);
         }
     }
