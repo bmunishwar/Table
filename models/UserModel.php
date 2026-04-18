@@ -12,13 +12,13 @@ class UserModel
             'table'        => 'users',
             'primary_key'  => 'id',
             'columns'      => [
-                ['key' => 'id',         'label' => 'ID',         'sortable' => true,  'searchable' => false],
-                ['key' => 'name',       'label' => 'Name',       'sortable' => true,  'searchable' => true],
-                ['key' => 'email',      'label' => 'Email',      'sortable' => true,  'searchable' => true],
+                ['key' => 'id',         'label' => 'ID',         'sortable' => true,  'searchable' => false, 'type' => 'id'],
+                ['key' => 'name',       'label' => 'Name',       'sortable' => true,  'searchable' => true,  'type' => 'name'],
+                ['key' => 'email',      'label' => 'Email',      'sortable' => true,  'searchable' => true,  'type' => 'email'],
                 ['key' => 'mobile',     'label' => 'Mobile',     'sortable' => true,  'searchable' => true],
                 ['key' => 'city',       'label' => 'City',       'sortable' => true,  'searchable' => true],
-                ['key' => 'status',     'label' => 'Status',     'sortable' => true,  'searchable' => false],
-                ['key' => 'created_at', 'label' => 'Created At', 'sortable' => true,  'searchable' => false],
+                ['key' => 'status',     'label' => 'Status',     'sortable' => true,  'searchable' => false, 'type' => 'status'],
+                ['key' => 'created_at', 'label' => 'Created At', 'sortable' => true,  'searchable' => false, 'type' => 'date'],
             ],
             'default_sort'  => 'id',
             'default_order' => 'asc',
@@ -35,6 +35,11 @@ class UserModel
     public function __construct()
     {
         $this->dataTable = new DataTable(self::tableConfig());
+    }
+
+    public function getColumnDefs(): array
+    {
+        return $this->dataTable->getColumnDefs();
     }
 
     public function getUsers(
@@ -55,6 +60,11 @@ class UserModel
         string $sortOrder
     ): array {
         return $this->dataTable->getGroupedData($page, $perPage, $search, $sortColumn, $sortOrder);
+    }
+
+    public function getAllData(string $search, string $sortColumn, string $sortOrder): array
+    {
+        return $this->dataTable->getAllData($search, $sortColumn, $sortOrder);
     }
 
     public function getDemoMergedData(): array

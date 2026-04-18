@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>User Management — Admin Panel</title>
+    <title>User Management — DataTablePro</title>
 
     <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -58,7 +58,7 @@
             <!-- Toolbar -->
             <div class="table-toolbar">
                 <div class="row align-items-center g-3">
-                    <!-- Left: Page size + Mode toggle -->
+                    <!-- Left: Page size + Mode toggle + Export -->
                     <div class="col-lg-7 d-flex align-items-center gap-3 flex-wrap">
                         <div class="d-flex align-items-center gap-2">
                             <span class="toolbar-label">Show</span>
@@ -82,6 +82,31 @@
                                 <span>Grouped</span>
                             </button>
                         </div>
+
+                        <!-- Export Dropdown -->
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-export dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-download me-1"></i><span>Export</span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end export-menu">
+                                <li>
+                                    <a class="dropdown-item" href="#" id="exportExcel">
+                                        <i class="bi bi-file-earmark-spreadsheet text-success me-2"></i>Excel (.xlsx)
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" id="exportPdf">
+                                        <i class="bi bi-file-earmark-pdf text-danger me-2"></i>PDF
+                                    </a>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <a class="dropdown-item" href="#" id="exportCsv">
+                                        <i class="bi bi-filetype-csv text-primary me-2"></i>CSV
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
 
                     <!-- Right: Search -->
@@ -89,7 +114,10 @@
                         <div class="search-wrapper">
                             <i class="bi bi-search search-icon"></i>
                             <input type="text" id="searchInput" class="form-control search-input" placeholder="Search...">
-                            <kbd class="search-shortcut d-none d-md-inline-flex">/</kbd>
+                            <button type="button" id="searchClear" class="search-clear d-none" title="Clear search">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                            <kbd class="search-shortcut d-none d-md-inline-flex" id="searchShortcut">/</kbd>
                         </div>
                     </div>
                 </div>
@@ -171,6 +199,11 @@
 <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
 <!-- Bootstrap JS Bundle -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- SheetJS for Excel/CSV export -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<!-- jsPDF for PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
 <!-- Custom JS -->
 <script src="/assets/js/users.js"></script>
 

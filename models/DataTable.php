@@ -2,30 +2,6 @@
 
 declare(strict_types=1);
 
-/**
- * Generic server-side DataTable engine.
- *
- * Works with any PostgreSQL table. Configure once, get pagination,
- * sorting, searching, and rowspan/colspan grouping for free.
- *
- * Usage:
- *   $config = [
- *       'table'        => 'users',
- *       'primary_key'  => 'id',
- *       'columns'      => [
- *           ['key' => 'id',   'label' => 'ID',   'sortable' => true,  'searchable' => false],
- *           ['key' => 'name', 'label' => 'Name', 'sortable' => true,  'searchable' => true],
- *       ],
- *       'default_sort'  => 'id',
- *       'default_order' => 'asc',
- *       'has_actions'   => true,
- *       'group_by'      => 'city',          // optional: column key for grouped mode
- *       'group_label'   => 'City',          // optional: label shown in group summary
- *       'formatters'    => ['status' => fn($val) => ...],  // optional per-column formatters
- *   ];
- *   $dt = new DataTable($config);
- *   $result = $dt->getData($page, $perPage, $search, $sortCol, $sortOrder);
- */
 class DataTable
 {
     private PDO $db;
@@ -51,25 +27,23 @@ class DataTable
         }
     }
 
-    /**
-     * Return column definitions for the frontend.
-     */
     public function getColumnDefs(): array
     {
         $defs = [];
         foreach ($this->config['columns'] as $col) {
-            $defs[] = [
-                'key'        => $col['key'],
-                'label'      => $col['label'],
-                'sortable'   => !empty($col['sortable']),
+            $def = [
+                'key'      => $col['key'],
+                'label'    => $col['label'],
+                'sortable' => !empty($col['sortable']),
             ];
+            if (!empty($col['type'])) {
+                $def['type'] = $col['type'];
+            }
+            $defs[] = $def;
         }
         return $defs;
     }
 
-    /**
-     * Normal mode: paginated, sorted, filtered flat rows.
-     */
     public function getData(
         int    $page,
         int    $perPage,
@@ -86,7 +60,6 @@ class DataTable
         $offset     = ($page - 1) * $perPage;
 
         [$whereClause, $bindings] = $this->buildSearchClause($search);
-
         $selectCols = $this->buildSelectColumns();
 
         $totalRecords    = $this->countRows($table, '', []);
@@ -104,7 +77,6 @@ class DataTable
         $stmt->execute();
         $rows = $stmt->fetchAll();
 
-        // Apply formatters
         $rows = $this->applyFormatters($rows);
 
         $totalPages = $filteredRecords > 0 ? (int) ceil($filteredRecords / $perPage) : 0;
@@ -123,9 +95,6 @@ class DataTable
         ];
     }
 
-    /**
-     * Grouped mode: rows grouped by a column with rowspan/colspan.
-     */
     public function getGroupedData(
         int    $page,
         int    $perPage,
@@ -146,7 +115,6 @@ class DataTable
         $sortOrder  = $this->validateSortOrder($sortOrder);
 
         [$whereClause, $bindings] = $this->buildSearchClause($search);
-
         $selectCols = $this->buildSelectColumns();
 
         $totalRecords    = $this->countRows($table, '', []);
@@ -162,44 +130,23 @@ class DataTable
         $stmt->execute();
         $allRows = $stmt->fetchAll();
 
-        // Apply formatters before grouping
         $allRows = $this->applyFormatters($allRows);
 
-        // Group by the configured column
         $groups = [];
         foreach ($allRows as $row) {
             $groups[$row[$groupByKey]][] = $row;
         }
 
-        // Sort rows within each group
-        $isAsc = $sortOrder === 'ASC';
+        $comparator = $this->buildComparator($sortColumn, $sortOrder === 'ASC');
         foreach ($groups as &$groupRows) {
-            usort($groupRows, function ($a, $b) use ($sortColumn, $isAsc) {
-                $valA = $a[$sortColumn] ?? '';
-                $valB = $b[$sortColumn] ?? '';
-                if (is_numeric($valA) && is_numeric($valB)) {
-                    $cmp = (float) $valA <=> (float) $valB;
-                } else {
-                    $cmp = strnatcasecmp((string) $valA, (string) $valB);
-                }
-                return $isAsc ? $cmp : -$cmp;
-            });
+            usort($groupRows, $comparator);
         }
         unset($groupRows);
 
-        // Sort groups by their first row's sort-column value
-        uasort($groups, function ($gA, $gB) use ($sortColumn, $isAsc) {
-            $valA = $gA[0][$sortColumn] ?? '';
-            $valB = $gB[0][$sortColumn] ?? '';
-            if (is_numeric($valA) && is_numeric($valB)) {
-                $cmp = (float) $valA <=> (float) $valB;
-            } else {
-                $cmp = strnatcasecmp((string) $valA, (string) $valB);
-            }
-            return $isAsc ? $cmp : -$cmp;
+        uasort($groups, function ($gA, $gB) use ($comparator) {
+            return $comparator($gA[0], $gB[0]);
         });
 
-        // Build the non-group column keys (everything except the group column)
         $nonGroupKeys = [];
         foreach ($this->config['columns'] as $col) {
             if ($col['key'] !== $groupByKey) {
@@ -207,10 +154,8 @@ class DataTable
             }
         }
 
-        // Build cell-metadata rows
         $mergedRows = [];
         $colCount   = count($this->config['columns']);
-        $groupLabel = $this->config['group_label'] ?? ucfirst($groupByKey);
 
         foreach ($groups as $groupValue => $rows) {
             $count = count($rows);
@@ -218,7 +163,6 @@ class DataTable
             foreach ($rows as $index => $row) {
                 $metaRow = [];
 
-                // Group column: rowspan on first, skip on rest
                 if ($index === 0) {
                     $cell = ['value' => (string) $groupValue, 'class' => 'fw-bold align-middle'];
                     if ($count > 1) {
@@ -229,7 +173,6 @@ class DataTable
                     $metaRow[] = ['skip' => true];
                 }
 
-                // Remaining columns
                 foreach ($nonGroupKeys as $key) {
                     $metaRow[] = ['value' => (string) ($row[$key] ?? '')];
                 }
@@ -237,7 +180,6 @@ class DataTable
                 $mergedRows[] = $metaRow;
             }
 
-            // Summary row
             $mergedRows[] = [
                 [
                     'value'   => "{$groupValue} \u{2014} {$count} row(s)",
@@ -247,24 +189,13 @@ class DataTable
             ];
         }
 
-        // Paginate merged rows
         $totalMergedRows = count($mergedRows);
         $totalPages      = $totalMergedRows > 0 ? (int) ceil($totalMergedRows / $perPage) : 0;
         $offset          = ($page - 1) * $perPage;
         $pagedRows       = array_slice($mergedRows, $offset, $perPage);
 
-        // Build grouped column labels (group col first, then rest)
-        $groupedColumnLabels = [];
-        foreach ($this->config['columns'] as $col) {
-            $groupedColumnLabels[] = [
-                'key'      => $col['key'],
-                'label'    => $col['label'],
-                'sortable' => !empty($col['sortable']),
-            ];
-        }
-
         return [
-            'columns'          => $groupedColumnLabels,
+            'columns'          => $this->getColumnDefs(),
             'primary_key'      => $this->config['primary_key'] ?? null,
             'has_actions'      => false,
             'data'             => array_values($pagedRows),
@@ -279,11 +210,29 @@ class DataTable
         ];
     }
 
+    public function getAllData(string $search, string $sortColumn, string $sortOrder): array
+    {
+        $table      = $this->safeTable();
+        $sortColumn = $this->validateSortColumn($sortColumn);
+        $sortOrder  = $this->validateSortOrder($sortOrder);
+        $selectCols = $this->buildSelectColumns();
+
+        [$whereClause, $bindings] = $this->buildSearchClause($search);
+
+        $sql  = "SELECT {$selectCols} FROM {$table} {$whereClause} ORDER BY {$sortColumn} {$sortOrder}";
+        $stmt = $this->db->prepare($sql);
+        foreach ($bindings as $param => $val) {
+            $stmt->bindValue($param, $val);
+        }
+        $stmt->execute();
+
+        return $this->applyFormatters($stmt->fetchAll());
+    }
+
     // ---- Private helpers ----
 
     private function safeTable(): string
     {
-        // Only allow simple table names (alphanumeric, underscore, dot for schema.table)
         $table = $this->config['table'];
         if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_.]*$/', $table)) {
             throw new \RuntimeException('Invalid table name.');
@@ -293,14 +242,12 @@ class DataTable
 
     private function buildSelectColumns(): string
     {
-        // Always select primary key + all defined column keys
         $keys = $this->allKeys;
         $pk   = $this->config['primary_key'] ?? null;
         if ($pk && !in_array($pk, $keys, true)) {
             array_unshift($keys, $pk);
         }
 
-        // Validate each key is a safe identifier
         foreach ($keys as $key) {
             if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $key)) {
                 throw new \RuntimeException('Invalid column name: ' . $key);
@@ -337,8 +284,8 @@ class DataTable
 
         foreach ($this->searchableKeys as $i => $col) {
             $param = ":search{$i}";
-            $conditions[]       = "{$col} ILIKE {$param} ESCAPE '\\'";
-            $bindings[$param]   = "%{$escaped}%";
+            $conditions[]     = "CAST({$col} AS TEXT) ILIKE {$param} ESCAPE '\\'";
+            $bindings[$param] = "%{$escaped}%";
         }
 
         return ['WHERE ' . implode(' OR ', $conditions), $bindings];
@@ -371,6 +318,20 @@ class DataTable
         }
         unset($row);
         return $rows;
+    }
+
+    private function buildComparator(string $sortColumn, bool $isAsc): \Closure
+    {
+        return function ($a, $b) use ($sortColumn, $isAsc): int {
+            $valA = $a[$sortColumn] ?? '';
+            $valB = $b[$sortColumn] ?? '';
+            if (is_numeric($valA) && is_numeric($valB)) {
+                $cmp = (float) $valA <=> (float) $valB;
+            } else {
+                $cmp = strnatcasecmp((string) $valA, (string) $valB);
+            }
+            return $isAsc ? $cmp : -$cmp;
+        };
     }
 
     private function escapeLikeWildcards(string $value): string

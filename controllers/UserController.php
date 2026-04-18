@@ -7,23 +7,18 @@ class UserController
     private UserModel $model;
 
     private const ALLOWED_PER_PAGE = [5, 10, 25, 50, 100];
+    private const ALLOWED_MODES    = ['normal', 'grouped'];
 
     public function __construct()
     {
         $this->model = new UserModel();
     }
 
-    /**
-     * Render the main HTML page.
-     */
     public function index(): void
     {
         require BASE_PATH . '/views/users/index.php';
     }
 
-    /**
-     * AJAX endpoint: return paginated/sorted/filtered user data as JSON.
-     */
     public function data(): void
     {
         try {
@@ -36,6 +31,10 @@ class UserController
 
             if (!in_array($perPage, self::ALLOWED_PER_PAGE, true)) {
                 $perPage = 10;
+            }
+
+            if (!in_array($mode, self::ALLOWED_MODES, true)) {
+                $mode = 'normal';
             }
 
             if ($mode === 'grouped') {
@@ -59,9 +58,28 @@ class UserController
         }
     }
 
-    /**
-     * AJAX endpoint: return demo merged-cell data (court schedule).
-     */
+    public function export(): void
+    {
+        try {
+            $search     = trim((string) ($_GET['search'] ?? ''));
+            $sortColumn = (string) ($_GET['sort_column'] ?? 'id');
+            $sortOrder  = (string) ($_GET['sort_order'] ?? 'asc');
+
+            $rows    = $this->model->getAllData($search, $sortColumn, $sortOrder);
+            $columns = $this->model->getColumnDefs();
+
+            Response::json([
+                'columns' => $columns,
+                'data'    => $rows,
+            ]);
+        } catch (\Throwable $e) {
+            error_log('[UserController::export] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            Response::json([
+                'error' => 'Unable to export data. Please try again later.',
+            ], 500);
+        }
+    }
+
     public function demoMerged(): void
     {
         try {

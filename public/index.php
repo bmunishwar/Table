@@ -52,6 +52,7 @@ try {
     match ($url) {
         '', 'users'            => (new UserController())->index(),
         'users/data'           => (new UserController())->data(),
+        'users/export'         => (new UserController())->export(),
         'users/demo-merged'    => (new UserController())->demoMerged(),
         default                => handleNotFound(),
     };

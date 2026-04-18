@@ -8,6 +8,8 @@ class Response
     {
         http_response_code($statusCode);
         header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        header('X-Content-Type-Options: nosniff');
 
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         echo $json;
