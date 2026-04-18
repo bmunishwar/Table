@@ -80,10 +80,14 @@
                 showError('Failed to load data. Please try again.');
                 $('#tableBody').html(
                     '<tr class="no-data-row"><td colspan="' + NORMAL_COL_COUNT + '" class="text-center">' +
-                    '<i class="bi bi-exclamation-circle me-2"></i>Error loading data</td></tr>'
+                    '<div class="empty-state">' +
+                    '<i class="bi bi-exclamation-circle empty-state-icon"></i>' +
+                    '<span class="empty-state-text">Error loading data</span>' +
+                    '</div></td></tr>'
                 );
                 $('#pagination').empty();
                 $('#tableInfo').text('');
+                $('#totalBadge').text('');
             },
             complete: function (xhr, status) {
                 if (status !== 'abort') {
@@ -142,7 +146,10 @@
         if (!rows || rows.length === 0) {
             tbody.html(
                 '<tr class="no-data-row"><td colspan="' + NORMAL_COL_COUNT + '" class="text-center">' +
-                '<i class="bi bi-inbox me-2"></i>No records found</td></tr>'
+                '<div class="empty-state">' +
+                '<i class="bi bi-inbox empty-state-icon"></i>' +
+                '<span class="empty-state-text">No records found</span>' +
+                '</div></td></tr>'
             );
             return;
         }
@@ -152,26 +159,26 @@
             var row = rows[i];
 
             var statusBadge = row.status === 'active'
-                ? '<span class="badge bg-success">Active</span>'
-                : '<span class="badge bg-secondary">Inactive</span>';
+                ? '<span class="status-badge status-active"><span class="status-dot"></span>Active</span>'
+                : '<span class="status-badge status-inactive"><span class="status-dot"></span>Inactive</span>';
 
             html += '<tr>' +
-                '<td>' + escapeHtml(row.id) + '</td>' +
-                '<td>' + escapeHtml(row.name) + '</td>' +
-                '<td>' + escapeHtml(row.email) + '</td>' +
+                '<td><span class="user-id">#' + escapeHtml(row.id) + '</span></td>' +
+                '<td><span class="user-name">' + escapeHtml(row.name) + '</span></td>' +
+                '<td><span class="user-email">' + escapeHtml(row.email) + '</span></td>' +
                 '<td>' + escapeHtml(row.mobile) + '</td>' +
                 '<td>' + escapeHtml(row.city) + '</td>' +
                 '<td>' + statusBadge + '</td>' +
-                '<td>' + formatDate(row.created_at) + '</td>' +
+                '<td><span class="user-date">' + formatDate(row.created_at) + '</span></td>' +
                 '<td class="text-center action-btns">' +
-                    '<button class="btn btn-sm btn-outline-info" onclick="DataTable.viewUser(' + row.id + ')" title="View">' +
+                    '<button class="action-btn btn-view" onclick="DataTable.viewUser(' + row.id + ')" title="View">' +
                         '<i class="bi bi-eye"></i>' +
                     '</button>' +
-                    '<button class="btn btn-sm btn-outline-warning" onclick="DataTable.editUser(' + row.id + ')" title="Edit">' +
+                    '<button class="action-btn btn-edit" onclick="DataTable.editUser(' + row.id + ')" title="Edit">' +
                         '<i class="bi bi-pencil"></i>' +
                     '</button>' +
-                    '<button class="btn btn-sm btn-outline-danger" onclick="DataTable.deleteUser(' + row.id + ')" title="Delete">' +
-                        '<i class="bi bi-trash"></i>' +
+                    '<button class="action-btn btn-delete" onclick="DataTable.deleteUser(' + row.id + ')" title="Delete">' +
+                        '<i class="bi bi-trash3"></i>' +
                     '</button>' +
                 '</td>' +
                 '</tr>';
@@ -221,7 +228,10 @@
         if (!rows || rows.length === 0) {
             tbody.html(
                 '<tr class="no-data-row"><td colspan="6" class="text-center">' +
-                '<i class="bi bi-inbox me-2"></i>No records found</td></tr>'
+                '<div class="empty-state">' +
+                '<i class="bi bi-inbox empty-state-icon"></i>' +
+                '<span class="empty-state-text">No records found</span>' +
+                '</div></td></tr>'
             );
             return;
         }
@@ -404,6 +414,9 @@
         var allTotal = response.total_records || 0;
         var current  = response.current_page || 1;
         var pp       = response.per_page || 10;
+
+        // Update total badge in page header
+        $('#totalBadge').text(allTotal + ' users');
 
         if (total === 0) {
             $('#tableInfo').text('No entries to show');
