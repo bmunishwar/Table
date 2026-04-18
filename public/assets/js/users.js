@@ -1,5 +1,6 @@
 /**
  * PHP MVC Data Table — Frontend Controller
+ * Fully server-driven: columns, actions, and modes are configured by backend response.
  * Handles AJAX loading, pagination, sorting, search, and rowspan/colspan rendering.
  */
 (function ($) {
@@ -16,6 +17,11 @@
     let debounceTimer  = null;
     let activeXhr      = null;
 
+    // Column definitions from the server (populated on first response)
+    let columnDefs     = [];
+    let primaryKey     = null;
+    let hasActions     = false;
+
     // ---- Helpers ----
 
     function escapeHtml(str) {
@@ -23,14 +29,6 @@
         var s = String(str);
         var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
         return s.replace(/[&<>"']/g, function (c) { return map[c]; });
-    }
-
-    function formatDate(dateStr) {
-        if (!dateStr) return '<span class="text-muted">—</span>';
-        var d = new Date(dateStr);
-        if (isNaN(d.getTime())) return '<span class="text-muted">—</span>';
-        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
     }
 
     function getColCount() {
@@ -47,7 +45,7 @@
 
     // ---- Data Fetching ----
 
-    function fetchUsers() {
+    function fetchData() {
         if (activeXhr && activeXhr.readyState !== 4) {
             activeXhr.abort();
         }
@@ -75,13 +73,20 @@
                     return;
                 }
 
+                // Store server-driven metadata
+                if (response.columns) {
+                    columnDefs = response.columns;
+                }
+                primaryKey = response.primary_key || null;
+                hasActions = !!response.has_actions;
+
                 if (response.mode === 'grouped') {
-                    currentColCount = (response.columns && response.columns.length) || 6;
-                    renderGroupedHeaders(response.columns);
+                    currentColCount = columnDefs.length || 6;
+                    renderGroupedHeaders(columnDefs);
                     renderGroupedBody(response.data);
                 } else {
-                    currentColCount = 8;
-                    renderNormalHeaders();
+                    currentColCount = columnDefs.length + (hasActions ? 1 : 0);
+                    renderNormalHeaders(columnDefs);
                     renderNormalBody(response.data);
                 }
 
@@ -142,22 +147,29 @@
         });
     }
 
-    // ---- Normal Mode Rendering ----
+    // ---- Normal Mode Rendering (fully server-driven) ----
 
-    function renderNormalHeaders() {
-        var headerHtml =
-            '<tr>' +
-            '<th data-sort="id" class="sortable">ID <span class="sort-icon"></span></th>' +
-            '<th data-sort="name" class="sortable">Name <span class="sort-icon"></span></th>' +
-            '<th data-sort="email" class="sortable">Email <span class="sort-icon"></span></th>' +
-            '<th data-sort="mobile" class="sortable">Mobile <span class="sort-icon"></span></th>' +
-            '<th data-sort="city" class="sortable">City <span class="sort-icon"></span></th>' +
-            '<th data-sort="status" class="sortable">Status <span class="sort-icon"></span></th>' +
-            '<th data-sort="created_at" class="sortable">Created <span class="sort-icon"></span></th>' +
-            '<th class="text-center" style="width:130px">Actions</th>' +
-            '</tr>';
+    function renderNormalHeaders(cols) {
+        if (!cols || cols.length === 0) return;
 
-        $('#tableHead').html(headerHtml);
+        var html = '<tr>';
+        for (var i = 0; i < cols.length; i++) {
+            var col = cols[i];
+            if (col.sortable) {
+                html += '<th data-sort="' + escapeHtml(col.key) + '" class="sortable">' +
+                        escapeHtml(col.label) + ' <span class="sort-icon"></span></th>';
+            } else {
+                html += '<th>' + escapeHtml(col.label) + '</th>';
+            }
+        }
+
+        if (hasActions) {
+            html += '<th class="text-center" style="width:130px">Actions</th>';
+        }
+
+        html += '</tr>';
+
+        $('#tableHead').html(html);
         updateSortIndicators();
         bindSortEvents();
     }
@@ -174,33 +186,44 @@
         var html = '';
         for (var i = 0; i < rows.length; i++) {
             var row = rows[i];
-            var safeId = parseInt(row.id, 10);
-            if (isNaN(safeId)) continue;
+            html += '<tr>';
 
-            var statusBadge = row.status === 'active'
-                ? '<span class="status-badge status-active"><span class="status-dot"></span>Active</span>'
-                : '<span class="status-badge status-inactive"><span class="status-dot"></span>Inactive</span>';
+            for (var c = 0; c < columnDefs.length; c++) {
+                var col = columnDefs[c];
+                var val = row[col.key];
+                var display = escapeHtml(val);
 
-            html += '<tr>' +
-                '<td><span class="user-id">#' + safeId + '</span></td>' +
-                '<td><span class="user-name">' + escapeHtml(row.name) + '</span></td>' +
-                '<td><span class="user-email">' + escapeHtml(row.email) + '</span></td>' +
-                '<td>' + escapeHtml(row.mobile) + '</td>' +
-                '<td>' + escapeHtml(row.city) + '</td>' +
-                '<td>' + statusBadge + '</td>' +
-                '<td><span class="user-date">' + formatDate(row.created_at) + '</span></td>' +
-                '<td class="text-center action-btns">' +
-                    '<button class="action-btn btn-view" data-action="view" data-id="' + safeId + '" title="View">' +
-                        '<i class="bi bi-eye"></i>' +
-                    '</button>' +
-                    '<button class="action-btn btn-edit" data-action="edit" data-id="' + safeId + '" title="Edit">' +
-                        '<i class="bi bi-pencil"></i>' +
-                    '</button>' +
-                    '<button class="action-btn btn-delete" data-action="delete" data-id="' + safeId + '" title="Delete">' +
-                        '<i class="bi bi-trash3"></i>' +
-                    '</button>' +
-                '</td>' +
-                '</tr>';
+                // Special rendering for status columns
+                if (col.key === 'status') {
+                    var lower = String(val || '').toLowerCase();
+                    if (lower === 'active') {
+                        display = '<span class="status-badge status-active"><span class="status-dot"></span>' + escapeHtml(val) + '</span>';
+                    } else if (lower === 'inactive') {
+                        display = '<span class="status-badge status-inactive"><span class="status-dot"></span>' + escapeHtml(val) + '</span>';
+                    }
+                }
+
+                html += '<td>' + display + '</td>';
+            }
+
+            if (hasActions && primaryKey) {
+                var pkVal = parseInt(row[primaryKey], 10);
+                if (!isNaN(pkVal)) {
+                    html += '<td class="text-center action-btns">' +
+                        '<button class="action-btn btn-view" data-action="view" data-id="' + pkVal + '" title="View">' +
+                            '<i class="bi bi-eye"></i>' +
+                        '</button>' +
+                        '<button class="action-btn btn-edit" data-action="edit" data-id="' + pkVal + '" title="Edit">' +
+                            '<i class="bi bi-pencil"></i>' +
+                        '</button>' +
+                        '<button class="action-btn btn-delete" data-action="delete" data-id="' + pkVal + '" title="Delete">' +
+                            '<i class="bi bi-trash3"></i>' +
+                        '</button>' +
+                    '</td>';
+                }
+            }
+
+            html += '</tr>';
         }
 
         tbody.html(html);
@@ -208,28 +231,17 @@
 
     // ---- Grouped Mode Rendering (Rowspan/Colspan) ----
 
-    var groupedColumnSortMap = {
-        'City':       'city',
-        'Name':       'name',
-        'Email':      'email',
-        'Mobile':     'mobile',
-        'Status':     'status',
-        'Created At': 'created_at'
-    };
-
-    function renderGroupedHeaders(columns) {
-        if (!columns || columns.length === 0) return;
+    function renderGroupedHeaders(cols) {
+        if (!cols || cols.length === 0) return;
 
         var html = '<tr>';
-        for (var i = 0; i < columns.length; i++) {
-            var label   = columns[i];
-            var sortKey = groupedColumnSortMap[label] || '';
-
-            if (sortKey) {
-                html += '<th data-sort="' + sortKey + '" class="sortable">' +
-                        escapeHtml(label) + ' <span class="sort-icon"></span></th>';
+        for (var i = 0; i < cols.length; i++) {
+            var col = cols[i];
+            if (col.sortable) {
+                html += '<th data-sort="' + escapeHtml(col.key) + '" class="sortable">' +
+                        escapeHtml(col.label) + ' <span class="sort-icon"></span></th>';
             } else {
-                html += '<th>' + escapeHtml(label) + '</th>';
+                html += '<th>' + escapeHtml(col.label) + '</th>';
             }
         }
         html += '</tr>';
@@ -422,7 +434,7 @@
         var current  = response.current_page || 1;
         var pp       = response.per_page || 10;
 
-        $('#totalBadge').text(allTotal + ' users');
+        $('#totalBadge').text(allTotal + ' records');
 
         if (total === 0) {
             $('#tableInfo').text('No entries to show');
@@ -462,7 +474,7 @@
 
             currentPage = 1;
             updateSortIndicators();
-            fetchUsers();
+            fetchData();
         });
     }
 
@@ -490,14 +502,14 @@
     function handleAction(action, id) {
         switch (action) {
             case 'view':
-                alert('View user #' + id + '\n\n(Not implemented — placeholder action)');
+                alert('View record #' + id + '\n\n(Not implemented — placeholder action)');
                 break;
             case 'edit':
-                alert('Edit user #' + id + '\n\n(Not implemented — placeholder action)');
+                alert('Edit record #' + id + '\n\n(Not implemented — placeholder action)');
                 break;
             case 'delete':
-                if (confirm('Are you sure you want to delete user #' + id + '?')) {
-                    alert('Delete user #' + id + '\n\n(Not implemented — placeholder action)');
+                if (confirm('Are you sure you want to delete record #' + id + '?')) {
+                    alert('Delete record #' + id + '\n\n(Not implemented — placeholder action)');
                 }
                 break;
         }
@@ -507,7 +519,7 @@
 
     $(document).ready(function () {
 
-        fetchUsers();
+        fetchData();
         fetchDemoMerged();
 
         // Search with debounce
@@ -517,7 +529,7 @@
             debounceTimer = setTimeout(function () {
                 searchTerm  = input.val().trim();
                 currentPage = 1;
-                fetchUsers();
+                fetchData();
             }, 400);
         });
 
@@ -525,7 +537,7 @@
         $('#pageSize').on('change', function () {
             perPage     = parseInt($(this).val(), 10) || 10;
             currentPage = 1;
-            fetchUsers();
+            fetchData();
         });
 
         // Sort header clicks
@@ -540,7 +552,7 @@
             var page = parseInt($(this).data('page'), 10);
             if (page && page > 0) {
                 currentPage = page;
-                fetchUsers();
+                fetchData();
             }
         });
 
@@ -560,7 +572,7 @@
             currentPage = 1;
             $(this).addClass('active');
             $('#modeGrouped').removeClass('active');
-            fetchUsers();
+            fetchData();
         });
 
         // Mode toggle: Grouped
@@ -570,7 +582,7 @@
             currentPage = 1;
             $(this).addClass('active');
             $('#modeNormal').removeClass('active');
-            fetchUsers();
+            fetchData();
         });
 
         // Keyboard shortcut: "/" focuses search

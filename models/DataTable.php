@@ -1,0 +1,380 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Generic server-side DataTable engine.
+ *
+ * Works with any PostgreSQL table. Configure once, get pagination,
+ * sorting, searching, and rowspan/colspan grouping for free.
+ *
+ * Usage:
+ *   $config = [
+ *       'table'        => 'users',
+ *       'primary_key'  => 'id',
+ *       'columns'      => [
+ *           ['key' => 'id',   'label' => 'ID',   'sortable' => true,  'searchable' => false],
+ *           ['key' => 'name', 'label' => 'Name', 'sortable' => true,  'searchable' => true],
+ *       ],
+ *       'default_sort'  => 'id',
+ *       'default_order' => 'asc',
+ *       'has_actions'   => true,
+ *       'group_by'      => 'city',          // optional: column key for grouped mode
+ *       'group_label'   => 'City',          // optional: label shown in group summary
+ *       'formatters'    => ['status' => fn($val) => ...],  // optional per-column formatters
+ *   ];
+ *   $dt = new DataTable($config);
+ *   $result = $dt->getData($page, $perPage, $search, $sortCol, $sortOrder);
+ */
+class DataTable
+{
+    private PDO $db;
+    private array $config;
+
+    private array $sortableKeys   = [];
+    private array $searchableKeys = [];
+    private array $allKeys        = [];
+
+    public function __construct(array $config)
+    {
+        $this->db     = Database::getConnection();
+        $this->config = $config;
+
+        foreach ($config['columns'] as $col) {
+            $this->allKeys[] = $col['key'];
+            if (!empty($col['sortable'])) {
+                $this->sortableKeys[] = $col['key'];
+            }
+            if (!empty($col['searchable'])) {
+                $this->searchableKeys[] = $col['key'];
+            }
+        }
+    }
+
+    /**
+     * Return column definitions for the frontend.
+     */
+    public function getColumnDefs(): array
+    {
+        $defs = [];
+        foreach ($this->config['columns'] as $col) {
+            $defs[] = [
+                'key'        => $col['key'],
+                'label'      => $col['label'],
+                'sortable'   => !empty($col['sortable']),
+            ];
+        }
+        return $defs;
+    }
+
+    /**
+     * Normal mode: paginated, sorted, filtered flat rows.
+     */
+    public function getData(
+        int    $page,
+        int    $perPage,
+        string $search,
+        string $sortColumn,
+        string $sortOrder
+    ): array {
+        $page    = max(1, $page);
+        $perPage = max(1, $perPage);
+        $table   = $this->safeTable();
+
+        $sortColumn = $this->validateSortColumn($sortColumn);
+        $sortOrder  = $this->validateSortOrder($sortOrder);
+        $offset     = ($page - 1) * $perPage;
+
+        [$whereClause, $bindings] = $this->buildSearchClause($search);
+
+        $selectCols = $this->buildSelectColumns();
+
+        $totalRecords    = $this->countRows($table, '', []);
+        $filteredRecords = ($search !== '')
+            ? $this->countRows($table, $whereClause, $bindings)
+            : $totalRecords;
+
+        $sql  = "SELECT {$selectCols} FROM {$table} {$whereClause} ORDER BY {$sortColumn} {$sortOrder} LIMIT :limit OFFSET :offset";
+        $stmt = $this->db->prepare($sql);
+        foreach ($bindings as $param => $val) {
+            $stmt->bindValue($param, $val);
+        }
+        $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll();
+
+        // Apply formatters
+        $rows = $this->applyFormatters($rows);
+
+        $totalPages = $filteredRecords > 0 ? (int) ceil($filteredRecords / $perPage) : 0;
+
+        return [
+            'columns'          => $this->getColumnDefs(),
+            'primary_key'      => $this->config['primary_key'] ?? null,
+            'has_actions'      => !empty($this->config['has_actions']),
+            'data'             => $rows,
+            'total_records'    => $totalRecords,
+            'filtered_records' => $filteredRecords,
+            'current_page'     => $page,
+            'per_page'         => $perPage,
+            'total_pages'      => $totalPages,
+            'mode'             => 'normal',
+        ];
+    }
+
+    /**
+     * Grouped mode: rows grouped by a column with rowspan/colspan.
+     */
+    public function getGroupedData(
+        int    $page,
+        int    $perPage,
+        string $search,
+        string $sortColumn,
+        string $sortOrder
+    ): array {
+        $page    = max(1, $page);
+        $perPage = max(1, $perPage);
+        $table   = $this->safeTable();
+
+        $groupByKey = $this->config['group_by'] ?? $this->allKeys[0] ?? null;
+        if (!$groupByKey || !in_array($groupByKey, $this->allKeys, true)) {
+            return $this->getData($page, $perPage, $search, $sortColumn, $sortOrder);
+        }
+
+        $sortColumn = $this->validateSortColumn($sortColumn, $groupByKey);
+        $sortOrder  = $this->validateSortOrder($sortOrder);
+
+        [$whereClause, $bindings] = $this->buildSearchClause($search);
+
+        $selectCols = $this->buildSelectColumns();
+
+        $totalRecords    = $this->countRows($table, '', []);
+        $filteredRecords = ($search !== '')
+            ? $this->countRows($table, $whereClause, $bindings)
+            : $totalRecords;
+
+        $sql  = "SELECT {$selectCols} FROM {$table} {$whereClause} ORDER BY {$groupByKey} ASC, {$sortColumn} {$sortOrder}";
+        $stmt = $this->db->prepare($sql);
+        foreach ($bindings as $param => $val) {
+            $stmt->bindValue($param, $val);
+        }
+        $stmt->execute();
+        $allRows = $stmt->fetchAll();
+
+        // Apply formatters before grouping
+        $allRows = $this->applyFormatters($allRows);
+
+        // Group by the configured column
+        $groups = [];
+        foreach ($allRows as $row) {
+            $groups[$row[$groupByKey]][] = $row;
+        }
+
+        // Sort rows within each group
+        $isAsc = $sortOrder === 'ASC';
+        foreach ($groups as &$groupRows) {
+            usort($groupRows, function ($a, $b) use ($sortColumn, $isAsc) {
+                $valA = $a[$sortColumn] ?? '';
+                $valB = $b[$sortColumn] ?? '';
+                if (is_numeric($valA) && is_numeric($valB)) {
+                    $cmp = (float) $valA <=> (float) $valB;
+                } else {
+                    $cmp = strnatcasecmp((string) $valA, (string) $valB);
+                }
+                return $isAsc ? $cmp : -$cmp;
+            });
+        }
+        unset($groupRows);
+
+        // Sort groups by their first row's sort-column value
+        uasort($groups, function ($gA, $gB) use ($sortColumn, $isAsc) {
+            $valA = $gA[0][$sortColumn] ?? '';
+            $valB = $gB[0][$sortColumn] ?? '';
+            if (is_numeric($valA) && is_numeric($valB)) {
+                $cmp = (float) $valA <=> (float) $valB;
+            } else {
+                $cmp = strnatcasecmp((string) $valA, (string) $valB);
+            }
+            return $isAsc ? $cmp : -$cmp;
+        });
+
+        // Build the non-group column keys (everything except the group column)
+        $nonGroupKeys = [];
+        foreach ($this->config['columns'] as $col) {
+            if ($col['key'] !== $groupByKey) {
+                $nonGroupKeys[] = $col['key'];
+            }
+        }
+
+        // Build cell-metadata rows
+        $mergedRows = [];
+        $colCount   = count($this->config['columns']);
+        $groupLabel = $this->config['group_label'] ?? ucfirst($groupByKey);
+
+        foreach ($groups as $groupValue => $rows) {
+            $count = count($rows);
+
+            foreach ($rows as $index => $row) {
+                $metaRow = [];
+
+                // Group column: rowspan on first, skip on rest
+                if ($index === 0) {
+                    $cell = ['value' => (string) $groupValue, 'class' => 'fw-bold align-middle'];
+                    if ($count > 1) {
+                        $cell['rowspan'] = $count;
+                    }
+                    $metaRow[] = $cell;
+                } else {
+                    $metaRow[] = ['skip' => true];
+                }
+
+                // Remaining columns
+                foreach ($nonGroupKeys as $key) {
+                    $metaRow[] = ['value' => (string) ($row[$key] ?? '')];
+                }
+
+                $mergedRows[] = $metaRow;
+            }
+
+            // Summary row
+            $mergedRows[] = [
+                [
+                    'value'   => "{$groupValue} \u{2014} {$count} row(s)",
+                    'colspan' => $colCount,
+                    'class'   => 'bg-light fw-semibold text-center small text-muted',
+                ],
+            ];
+        }
+
+        // Paginate merged rows
+        $totalMergedRows = count($mergedRows);
+        $totalPages      = $totalMergedRows > 0 ? (int) ceil($totalMergedRows / $perPage) : 0;
+        $offset          = ($page - 1) * $perPage;
+        $pagedRows       = array_slice($mergedRows, $offset, $perPage);
+
+        // Build grouped column labels (group col first, then rest)
+        $groupedColumnLabels = [];
+        foreach ($this->config['columns'] as $col) {
+            $groupedColumnLabels[] = [
+                'key'      => $col['key'],
+                'label'    => $col['label'],
+                'sortable' => !empty($col['sortable']),
+            ];
+        }
+
+        return [
+            'columns'          => $groupedColumnLabels,
+            'primary_key'      => $this->config['primary_key'] ?? null,
+            'has_actions'      => false,
+            'data'             => array_values($pagedRows),
+            'total_records'    => $totalRecords,
+            'filtered_records' => $totalMergedRows,
+            'current_page'     => $page,
+            'per_page'         => $perPage,
+            'total_pages'      => $totalPages,
+            'mode'             => 'grouped',
+            'sort_column'      => $sortColumn,
+            'sort_order'       => strtolower($sortOrder),
+        ];
+    }
+
+    // ---- Private helpers ----
+
+    private function safeTable(): string
+    {
+        // Only allow simple table names (alphanumeric, underscore, dot for schema.table)
+        $table = $this->config['table'];
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_.]*$/', $table)) {
+            throw new \RuntimeException('Invalid table name.');
+        }
+        return $table;
+    }
+
+    private function buildSelectColumns(): string
+    {
+        // Always select primary key + all defined column keys
+        $keys = $this->allKeys;
+        $pk   = $this->config['primary_key'] ?? null;
+        if ($pk && !in_array($pk, $keys, true)) {
+            array_unshift($keys, $pk);
+        }
+
+        // Validate each key is a safe identifier
+        foreach ($keys as $key) {
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $key)) {
+                throw new \RuntimeException('Invalid column name: ' . $key);
+            }
+        }
+
+        return implode(', ', $keys);
+    }
+
+    private function validateSortColumn(string $col, ?string $default = null): string
+    {
+        $default = $default ?? $this->config['default_sort'] ?? 'id';
+        if (!in_array($col, $this->sortableKeys, true)) {
+            $col = in_array($default, $this->sortableKeys, true) ? $default : ($this->sortableKeys[0] ?? $this->allKeys[0]);
+        }
+        return $col;
+    }
+
+    private function validateSortOrder(string $order): string
+    {
+        $order = strtoupper($order);
+        return in_array($order, ['ASC', 'DESC'], true) ? $order : 'ASC';
+    }
+
+    private function buildSearchClause(string $search): array
+    {
+        if ($search === '' || empty($this->searchableKeys)) {
+            return ['', []];
+        }
+
+        $escaped    = $this->escapeLikeWildcards($search);
+        $conditions = [];
+        $bindings   = [];
+
+        foreach ($this->searchableKeys as $i => $col) {
+            $param = ":search{$i}";
+            $conditions[]       = "{$col} ILIKE {$param} ESCAPE '\\'";
+            $bindings[$param]   = "%{$escaped}%";
+        }
+
+        return ['WHERE ' . implode(' OR ', $conditions), $bindings];
+    }
+
+    private function countRows(string $table, string $whereClause, array $bindings): int
+    {
+        $sql  = "SELECT COUNT(*) FROM {$table} {$whereClause}";
+        $stmt = $this->db->prepare($sql);
+        foreach ($bindings as $param => $val) {
+            $stmt->bindValue($param, $val);
+        }
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function applyFormatters(array $rows): array
+    {
+        $formatters = $this->config['formatters'] ?? [];
+        if (empty($formatters)) {
+            return $rows;
+        }
+
+        foreach ($rows as &$row) {
+            foreach ($formatters as $key => $fn) {
+                if (array_key_exists($key, $row)) {
+                    $row[$key] = $fn($row[$key], $row);
+                }
+            }
+        }
+        unset($row);
+        return $rows;
+    }
+
+    private function escapeLikeWildcards(string $value): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
+    }
+}

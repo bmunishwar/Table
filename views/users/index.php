@@ -88,7 +88,7 @@
                     <div class="col-lg-5 d-flex justify-content-lg-end">
                         <div class="search-wrapper">
                             <i class="bi bi-search search-icon"></i>
-                            <input type="text" id="searchInput" class="form-control search-input" placeholder="Search users...">
+                            <input type="text" id="searchInput" class="form-control search-input" placeholder="Search...">
                             <kbd class="search-shortcut d-none d-md-inline-flex">/</kbd>
                         </div>
                     </div>
@@ -116,18 +116,7 @@
                 <!-- Responsive Table -->
                 <div class="table-responsive">
                     <table class="table modern-table" id="usersTable">
-                        <thead id="tableHead">
-                            <tr>
-                                <th data-sort="id" class="sortable">ID <span class="sort-icon"></span></th>
-                                <th data-sort="name" class="sortable">Name <span class="sort-icon"></span></th>
-                                <th data-sort="email" class="sortable">Email <span class="sort-icon"></span></th>
-                                <th data-sort="mobile" class="sortable">Mobile <span class="sort-icon"></span></th>
-                                <th data-sort="city" class="sortable">City <span class="sort-icon"></span></th>
-                                <th data-sort="status" class="sortable">Status <span class="sort-icon"></span></th>
-                                <th data-sort="created_at" class="sortable">Created <span class="sort-icon"></span></th>
-                                <th class="text-center" style="width:130px">Actions</th>
-                            </tr>
-                        </thead>
+                        <thead id="tableHead"></thead>
                         <tbody id="tableBody"></tbody>
                     </table>
                 </div>
