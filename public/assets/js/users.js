@@ -538,10 +538,59 @@
         }
     }
 
+    // ---- Toast Notifications ----
+
+    var toastCounter = 0;
+
+    function showToast(message, type) {
+        var id = 'toast-' + (++toastCounter);
+        var iconMap = {
+            success: 'bi-check-circle-fill text-success',
+            error:   'bi-exclamation-circle-fill text-danger',
+            info:    'bi-info-circle-fill text-primary'
+        };
+        var icon = iconMap[type] || iconMap.info;
+
+        var html =
+            '<div id="' + id + '" class="toast export-toast align-items-center border-0" role="alert" aria-live="assertive" aria-atomic="true">' +
+                '<div class="d-flex">' +
+                    '<div class="toast-body d-flex align-items-center gap-2">' +
+                        '<i class="bi ' + icon + '"></i>' +
+                        '<span>' + escapeHtml(message) + '</span>' +
+                    '</div>' +
+                    '<button type="button" class="btn-close btn-close-sm me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>' +
+                '</div>' +
+            '</div>';
+
+        $('#toastContainer').append(html);
+        var toastEl = document.getElementById(id);
+        var toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+        toast.show();
+
+        $(toastEl).on('hidden.bs.toast', function () {
+            $(this).remove();
+        });
+    }
+
     // ---- Export Functions ----
 
-    function fetchAllDataForExport(callback) {
-        showLoading(true);
+    var isExporting = false;
+
+    function setExportLoading(loading) {
+        isExporting = loading;
+        var $btn = $('.btn-export');
+        if (loading) {
+            $btn.prop('disabled', true);
+            $btn.find('i.bi-download').removeClass('bi-download').addClass('bi-arrow-repeat spin-icon');
+        } else {
+            $btn.prop('disabled', false);
+            $btn.find('i.bi-arrow-repeat').removeClass('bi-arrow-repeat spin-icon').addClass('bi-download');
+        }
+    }
+
+    function fetchAllDataForExport(format, callback) {
+        if (isExporting) return;
+        setExportLoading(true);
 
         $.ajax({
             url: '/users/export',
@@ -554,46 +603,58 @@
             },
             success: function (response) {
                 if (response.error) {
-                    showError(response.error);
+                    showToast('Export failed: ' + response.error, 'error');
                     return;
                 }
-                callback(response.columns, response.data);
+                try {
+                    callback(response.columns, response.data);
+                    var count = response.data ? response.data.length : 0;
+                    showToast(format + ' exported successfully (' + count + ' records)', 'success');
+                } catch (err) {
+                    showToast('Export failed: ' + err.message, 'error');
+                }
             },
             error: function () {
-                showError('Export failed. Please try again.');
+                showToast('Export failed. Could not fetch data from server.', 'error');
             },
             complete: function () {
-                showLoading(false);
+                setExportLoading(false);
             }
         });
     }
 
+    function buildExportData(columns, rows) {
+        var headers = columns.map(function (c) { return c.label; });
+        var keys    = columns.map(function (c) { return c.key; });
+        var data    = rows.map(function (row) {
+            return keys.map(function (k) { return row[k] !== undefined ? row[k] : ''; });
+        });
+        return { headers: headers, keys: keys, data: data };
+    }
+
     function exportExcel() {
         if (typeof XLSX === 'undefined') {
-            showError('Excel export library not loaded.');
+            showToast('Excel library (SheetJS) not loaded. Check your internet connection.', 'error');
             return;
         }
 
-        fetchAllDataForExport(function (columns, rows) {
-            var headers = columns.map(function (c) { return c.label; });
-            var keys    = columns.map(function (c) { return c.key; });
+        fetchAllDataForExport('Excel', function (columns, rows) {
+            var exp = buildExportData(columns, rows);
 
-            var data = rows.map(function (row) {
-                return keys.map(function (k) { return row[k] !== undefined ? row[k] : ''; });
-            });
+            var ws = XLSX.utils.aoa_to_sheet([exp.headers].concat(exp.data));
 
-            var ws = XLSX.utils.aoa_to_sheet([headers].concat(data));
-
-            // Auto-size columns
-            var colWidths = headers.map(function (h, i) {
+            var colWidths = exp.headers.map(function (h, i) {
                 var maxLen = h.length;
-                for (var r = 0; r < data.length; r++) {
-                    var cellLen = String(data[r][i] || '').length;
+                for (var r = 0; r < Math.min(exp.data.length, 100); r++) {
+                    var cellLen = String(exp.data[r][i] || '').length;
                     if (cellLen > maxLen) maxLen = cellLen;
                 }
-                return { wch: Math.min(maxLen + 2, 50) };
+                return { wch: Math.min(maxLen + 3, 50) };
             });
             ws['!cols'] = colWidths;
+
+            // Freeze header row
+            ws['!freeze'] = { xSplit: 0, ySplit: 1 };
 
             var wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Data');
@@ -603,19 +664,14 @@
 
     function exportCsv() {
         if (typeof XLSX === 'undefined') {
-            showError('Export library not loaded.');
+            showToast('Export library (SheetJS) not loaded. Check your internet connection.', 'error');
             return;
         }
 
-        fetchAllDataForExport(function (columns, rows) {
-            var headers = columns.map(function (c) { return c.label; });
-            var keys    = columns.map(function (c) { return c.key; });
+        fetchAllDataForExport('CSV', function (columns, rows) {
+            var exp = buildExportData(columns, rows);
 
-            var data = rows.map(function (row) {
-                return keys.map(function (k) { return row[k] !== undefined ? row[k] : ''; });
-            });
-
-            var ws  = XLSX.utils.aoa_to_sheet([headers].concat(data));
+            var ws  = XLSX.utils.aoa_to_sheet([exp.headers].concat(exp.data));
             var csv = XLSX.utils.sheet_to_csv(ws);
 
             var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -631,69 +687,127 @@
 
     function exportPdf() {
         if (typeof jspdf === 'undefined' || typeof jspdf.jsPDF === 'undefined') {
-            showError('PDF export library not loaded.');
+            showToast('PDF library (jsPDF) not loaded. Check your internet connection.', 'error');
             return;
         }
 
-        fetchAllDataForExport(function (columns, rows) {
-            var headers = columns.map(function (c) { return c.label; });
-            var keys    = columns.map(function (c) { return c.key; });
-
-            var data = rows.map(function (row) {
-                return keys.map(function (k) { return String(row[k] !== undefined ? row[k] : ''); });
-            });
+        fetchAllDataForExport('PDF', function (columns, rows) {
+            var exp = buildExportData(columns, rows);
 
             var doc = new jspdf.jsPDF('l', 'mm', 'a4');
+            var pageWidth = doc.internal.pageSize.getWidth();
+            var pageHeight = doc.internal.pageSize.getHeight();
 
-            // Title
-            doc.setFontSize(16);
+            // Header bar
+            doc.setFillColor(79, 70, 229);
+            doc.rect(0, 0, pageWidth, 28, 'F');
+
+            // Title on header
+            doc.setFontSize(18);
             doc.setFont('helvetica', 'bold');
-            doc.text('Data Export', 14, 15);
+            doc.setTextColor(255, 255, 255);
+            doc.text('Data Export', 14, 13);
 
-            // Subtitle
+            // Subtitle on header
             doc.setFontSize(8);
             doc.setFont('helvetica', 'normal');
-            doc.setTextColor(120);
+            doc.setTextColor(200, 200, 255);
             var subtitle = 'Generated: ' + new Date().toLocaleString();
             if (searchTerm) {
-                subtitle += '  |  Search: "' + searchTerm + '"';
+                subtitle += '   |   Filter: "' + searchTerm + '"';
             }
-            subtitle += '  |  Total: ' + rows.length + ' records';
+            subtitle += '   |   ' + rows.length + ' records';
             doc.text(subtitle, 14, 21);
+
             doc.setTextColor(0);
 
+            // Status column index (for colored cells)
+            var statusIdx = -1;
+            for (var si = 0; si < columns.length; si++) {
+                if (columns[si].type === 'status') { statusIdx = si; break; }
+            }
+
             doc.autoTable({
-                head: [headers],
-                body: data,
-                startY: 26,
+                head: [exp.headers],
+                body: exp.data,
+                startY: 34,
                 theme: 'grid',
                 styles: {
                     fontSize: 7.5,
-                    cellPadding: 2.5,
+                    cellPadding: 3,
                     lineColor: [220, 220, 220],
-                    lineWidth: 0.25
+                    lineWidth: 0.2,
+                    textColor: [30, 30, 30],
+                    font: 'helvetica'
                 },
                 headStyles: {
-                    fillColor: [79, 70, 229],
-                    textColor: 255,
+                    fillColor: [55, 48, 163],
+                    textColor: [255, 255, 255],
                     fontStyle: 'bold',
-                    fontSize: 7.5
+                    fontSize: 7.5,
+                    cellPadding: 3.5
                 },
                 alternateRowStyles: {
                     fillColor: [248, 249, 252]
                 },
-                margin: { top: 26, left: 14, right: 14 },
+                columnStyles: (function () {
+                    var styles = {};
+                    for (var ci = 0; ci < columns.length; ci++) {
+                        if (columns[ci].type === 'id') {
+                            styles[ci] = { fontStyle: 'bold', textColor: [120, 120, 120], fontSize: 7 };
+                        }
+                        if (columns[ci].type === 'email') {
+                            styles[ci] = { textColor: [70, 70, 150], fontSize: 7 };
+                        }
+                        if (columns[ci].type === 'name') {
+                            styles[ci] = { fontStyle: 'bold' };
+                        }
+                    }
+                    return styles;
+                })(),
+                margin: { top: 34, left: 14, right: 14, bottom: 18 },
+                didParseCell: function (data) {
+                    if (data.section === 'body' && statusIdx >= 0 && data.column.index === statusIdx) {
+                        var val = String(data.cell.raw || '').toLowerCase();
+                        if (val === 'active' || val === 'enabled' || val === 'confirmed') {
+                            data.cell.styles.textColor = [5, 150, 105];
+                            data.cell.styles.fontStyle = 'bold';
+                        } else if (val === 'inactive' || val === 'disabled') {
+                            data.cell.styles.textColor = [156, 163, 175];
+                            data.cell.styles.fontStyle = 'bold';
+                        } else if (val === 'pending' || val === 'waiting') {
+                            data.cell.styles.textColor = [217, 119, 6];
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                    }
+                },
                 didDrawPage: function (data) {
-                    // Footer with page number
+                    // Footer
                     var pageCount = doc.internal.getNumberOfPages();
                     doc.setFontSize(7);
                     doc.setTextColor(150);
                     doc.text(
+                        'DataTablePro Export',
+                        14,
+                        pageHeight - 8
+                    );
+                    doc.text(
                         'Page ' + data.pageNumber + ' of ' + pageCount,
-                        doc.internal.pageSize.getWidth() - 14,
-                        doc.internal.pageSize.getHeight() - 8,
+                        pageWidth - 14,
+                        pageHeight - 8,
                         { align: 'right' }
                     );
+
+                    // Header bar on subsequent pages
+                    if (data.pageNumber > 1) {
+                        doc.setFillColor(79, 70, 229);
+                        doc.rect(0, 0, pageWidth, 10, 'F');
+                        doc.setFontSize(8);
+                        doc.setTextColor(255, 255, 255);
+                        doc.setFont('helvetica', 'bold');
+                        doc.text('Data Export (continued)', 14, 7);
+                        doc.setTextColor(0);
+                    }
                 }
             });
 

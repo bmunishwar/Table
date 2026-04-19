@@ -667,6 +667,37 @@ td[rowspan] {
     font-size: 0.78rem;
 }
 
+/* ---- Export Toast ---- */
+.export-toast {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-xl);
+    font-family: var(--font-family);
+    font-size: 0.82rem;
+    min-width: 260px;
+}
+
+.export-toast .toast-body {
+    font-weight: 500;
+    color: var(--color-text);
+}
+
+.export-toast .btn-close-sm {
+    font-size: 0.55rem;
+}
+
+/* Export button spinner */
+.spin-icon {
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+}
+
+.btn-export:disabled {
+    opacity: 0.7;
+    cursor: wait;
+}
+
 /* ---- Row Fade-In Animation ---- */
 .fade-in {
     animation: fadeInRow 0.3s ease forwards;

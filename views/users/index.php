@@ -195,6 +195,9 @@
     </div>
 </div>
 
+<!-- Toast Container for export notifications -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer" style="z-index:1090"></div>
+
 <!-- jQuery -->
 <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
 <!-- Bootstrap JS Bundle -->
