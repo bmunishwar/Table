@@ -2,6 +2,55 @@
 
 declare(strict_types=1);
 
+/**
+ * Generic server-side DataTable engine.
+ *
+ * Works with any PostgreSQL table and any existing PDO connection.
+ * Configure once — get pagination, sorting, searching, grouped
+ * rowspan/colspan, and export for free.
+ *
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ *  QUICK START — drop into any PHP application
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ *
+ *  1. Define your table config:
+ *
+ *     $config = [
+ *         'table'        => 'products',
+ *         'primary_key'  => 'product_id',
+ *         'columns'      => [
+ *             ['key' => 'product_id', 'label' => 'ID',    'sortable' => true, 'searchable' => false, 'type' => 'id'],
+ *             ['key' => 'name',      'label' => 'Name',  'sortable' => true, 'searchable' => true,  'type' => 'name'],
+ *             ['key' => 'price',     'label' => 'Price', 'sortable' => true, 'searchable' => false],
+ *             ['key' => 'category',  'label' => 'Category', 'sortable' => true, 'searchable' => true],
+ *         ],
+ *         'default_sort'  => 'product_id',
+ *         'default_order' => 'asc',
+ *         'has_actions'   => true,
+ *         'group_by'      => 'category',       // optional
+ *         'group_label'   => 'Category',        // optional
+ *         'formatters'    => [                   // optional
+ *             'price' => fn($v) => '$' . number_format((float)$v, 2),
+ *         ],
+ *     ];
+ *
+ *  2. Handle AJAX requests (one line in your route/controller):
+ *
+ *     DataTable::handleRequest($config, $yourPdo);
+ *     // — or for export:
+ *     DataTable::handleRequest($config, $yourPdo, 'export');
+ *
+ *  3. Render the widget in your view:
+ *
+ *     $widget = new DataTableWidget([
+ *         'data_url'   => '/admin/products/data',
+ *         'export_url' => '/admin/products/export',
+ *         'title'      => 'Product Catalog',
+ *     ]);
+ *     echo $widget->renderHeadAssets();   // in <head>
+ *     echo $widget->render();             // in <body>
+ *     echo $widget->renderFooterAssets(); // before </body>
+ */
 class DataTable
 {
     private PDO $db;
@@ -11,9 +60,9 @@ class DataTable
     private array $searchableKeys = [];
     private array $allKeys        = [];
 
-    public function __construct(array $config)
+    public function __construct(array $config, ?PDO $pdo = null)
     {
-        $this->db     = Database::getConnection();
+        $this->db     = $pdo ?? Database::getConnection();
         $this->config = $config;
 
         foreach ($config['columns'] as $col) {
@@ -25,6 +74,64 @@ class DataTable
                 $this->searchableKeys[] = $col['key'];
             }
         }
+    }
+
+    /**
+     * One-liner for AJAX endpoints. Reads $_GET, runs the query, sends JSON.
+     *
+     * @param array       $config      Table configuration array
+     * @param PDO|null    $pdo         Your PDO connection (null = use Database::getConnection())
+     * @param string|null $forceAction 'data' | 'export' | null (auto-detect from $_GET['action'])
+     */
+    public static function handleRequest(array $config, ?PDO $pdo = null, ?string $forceAction = null): void
+    {
+        $dt = new self($config, $pdo);
+
+        $action     = $forceAction ?? (string) ($_GET['action'] ?? 'data');
+        $page       = max(1, (int) ($_GET['page'] ?? 1));
+        $perPage    = (int) ($_GET['per_page'] ?? 10);
+        $search     = trim((string) ($_GET['search'] ?? ''));
+        $sortColumn = (string) ($_GET['sort_column'] ?? $config['default_sort'] ?? 'id');
+        $sortOrder  = (string) ($_GET['sort_order'] ?? $config['default_order'] ?? 'asc');
+        $mode       = (string) ($_GET['mode'] ?? 'normal');
+
+        $allowedPerPage = [5, 10, 25, 50, 100];
+        if (!in_array($perPage, $allowedPerPage, true)) {
+            $perPage = 10;
+        }
+
+        $status = 200;
+        try {
+            if ($action === 'export') {
+                $result = [
+                    'columns' => $dt->getColumnDefs(),
+                    'data'    => $dt->getAllData($search, $sortColumn, $sortOrder),
+                ];
+            } elseif ($mode === 'grouped' && !empty($config['group_by'])) {
+                $result = $dt->getGroupedData($page, $perPage, $search, $sortColumn, $sortOrder);
+            } else {
+                $result = $dt->getData($page, $perPage, $search, $sortColumn, $sortOrder);
+            }
+        } catch (\Throwable $e) {
+            error_log('[DataTable] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            $status = 500;
+            $result = [
+                'error'            => 'Unable to fetch data. Please try again later.',
+                'data'             => [],
+                'total_records'    => 0,
+                'filtered_records' => 0,
+                'current_page'     => 1,
+                'per_page'         => $perPage,
+                'total_pages'      => 0,
+            ];
+        }
+
+        http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        header('X-Content-Type-Options: nosniff');
+        echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        exit;
     }
 
     public function getColumnDefs(): array

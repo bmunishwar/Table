@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 class UserModel
 {
-    private DataTable $dataTable;
-
-    private static function tableConfig(): array
+    public static function tableConfig(): array
     {
         return [
             'table'        => 'users',
@@ -26,48 +24,13 @@ class UserModel
             'group_by'      => 'city',
             'group_label'   => 'City',
             'formatters'    => [
-                'status' => fn($val) => ucfirst((string) $val),
+                'status'     => fn($val) => ucfirst((string) $val),
                 'created_at' => fn($val) => $val ? date('d M Y', strtotime((string) $val)) : '',
             ],
         ];
     }
 
-    public function __construct()
-    {
-        $this->dataTable = new DataTable(self::tableConfig());
-    }
-
-    public function getColumnDefs(): array
-    {
-        return $this->dataTable->getColumnDefs();
-    }
-
-    public function getUsers(
-        int    $page,
-        int    $perPage,
-        string $search,
-        string $sortColumn,
-        string $sortOrder
-    ): array {
-        return $this->dataTable->getData($page, $perPage, $search, $sortColumn, $sortOrder);
-    }
-
-    public function getGroupedByCityData(
-        int    $page,
-        int    $perPage,
-        string $search,
-        string $sortColumn,
-        string $sortOrder
-    ): array {
-        return $this->dataTable->getGroupedData($page, $perPage, $search, $sortColumn, $sortOrder);
-    }
-
-    public function getAllData(string $search, string $sortColumn, string $sortOrder): array
-    {
-        return $this->dataTable->getAllData($search, $sortColumn, $sortOrder);
-    }
-
-    public function getDemoMergedData(): array
+    public static function getDemoMergedData(): array
     {
         return [
             'columns' => ['Time Slot', 'Court', 'Player', 'Match Type', 'Status'],

@@ -1,18 +1,37 @@
 /**
- * PHP MVC Data Table — Frontend Controller
- * Fully server-driven: columns, actions, and modes are configured by backend response.
- * Handles AJAX loading, pagination, sorting, search, rowspan/colspan rendering,
- * URL state persistence, and PDF/Excel/CSV export.
+ * DataTablePro — Configurable Frontend Controller
+ *
+ * Reads configuration from window.DataTableConfig:
+ *   {
+ *     dataUrl:         '/your/data/endpoint',
+ *     exportUrl:       '/your/export/endpoint',   // optional
+ *     demoUrl:         '/your/demo/endpoint',      // optional
+ *     defaultSort:     'id',
+ *     defaultOrder:    'asc',
+ *     defaultPageSize: 10,
+ *     brandName:       'DataTablePro',
+ *     showModeToggle:  true,
+ *     showExport:      true
+ *   }
  */
 (function ($) {
     'use strict';
 
+    var config = window.DataTableConfig || {};
+    var dataUrl       = config.dataUrl || '/data';
+    var exportUrl     = config.exportUrl || '';
+    var demoUrl       = config.demoUrl || '';
+    var brandName     = config.brandName || 'DataTablePro';
+    var defaultSort   = config.defaultSort || 'id';
+    var defaultOrder  = config.defaultOrder || 'asc';
+    var defaultSize   = config.defaultPageSize || 10;
+
     // ---- State ----
     var currentPage    = 1;
-    var perPage        = 10;
+    var perPage        = defaultSize;
     var searchTerm     = '';
-    var sortColumn     = 'id';
-    var sortDirection  = 'asc';
+    var sortColumn     = defaultSort;
+    var sortDirection  = defaultOrder;
     var currentMode    = 'normal';
     var currentColCount = 8;
     var debounceTimer  = null;
@@ -52,12 +71,12 @@
 
     function saveStateToUrl() {
         var params = new URLSearchParams();
-        if (currentPage > 1)          params.set('page', currentPage);
-        if (searchTerm)               params.set('search', searchTerm);
-        if (sortColumn !== 'id')      params.set('sort', sortColumn);
-        if (sortDirection !== 'asc')  params.set('order', sortDirection);
-        if (currentMode !== 'normal') params.set('mode', currentMode);
-        if (perPage !== 10)           params.set('per_page', perPage);
+        if (currentPage > 1)                params.set('page', currentPage);
+        if (searchTerm)                     params.set('search', searchTerm);
+        if (sortColumn !== defaultSort)     params.set('sort', sortColumn);
+        if (sortDirection !== defaultOrder) params.set('order', sortDirection);
+        if (currentMode !== 'normal')       params.set('mode', currentMode);
+        if (perPage !== defaultSize)        params.set('per_page', perPage);
 
         var hash = params.toString();
         history.replaceState(null, '', hash ? '#' + hash : window.location.pathname);
@@ -72,7 +91,7 @@
         if (params.has('page'))     currentPage   = Math.max(1, parseInt(params.get('page'), 10) || 1);
         if (params.has('sort'))     sortColumn    = params.get('sort');
         if (params.has('order'))    sortDirection  = params.get('order') === 'desc' ? 'desc' : 'asc';
-        if (params.has('per_page')) perPage        = parseInt(params.get('per_page'), 10) || 10;
+        if (params.has('per_page')) perPage        = parseInt(params.get('per_page'), 10) || defaultSize;
 
         if (params.has('search')) {
             searchTerm = params.get('search');
@@ -175,7 +194,7 @@
         saveStateToUrl();
 
         activeXhr = $.ajax({
-            url: '/users/data',
+            url: dataUrl,
             method: 'GET',
             dataType: 'json',
             data: {
@@ -234,10 +253,12 @@
     }
 
     function fetchDemoMerged() {
+        if (!demoUrl) return;
+
         $('#demoLoading').removeClass('d-none');
 
         $.ajax({
-            url: '/users/demo-merged',
+            url: demoUrl,
             method: 'GET',
             dataType: 'json',
             success: function (response) {
@@ -589,11 +610,11 @@
     }
 
     function fetchAllDataForExport(format, callback) {
-        if (isExporting) return;
+        if (isExporting || !exportUrl) return;
         setExportLoading(true);
 
         $.ajax({
-            url: '/users/export',
+            url: exportUrl,
             method: 'GET',
             dataType: 'json',
             data: {
@@ -652,8 +673,6 @@
                 return { wch: Math.min(maxLen + 3, 50) };
             });
             ws['!cols'] = colWidths;
-
-            // Freeze header row
             ws['!freeze'] = { xSplit: 0, ySplit: 1 };
 
             var wb = XLSX.utils.book_new();
@@ -698,17 +717,14 @@
             var pageWidth = doc.internal.pageSize.getWidth();
             var pageHeight = doc.internal.pageSize.getHeight();
 
-            // Header bar
             doc.setFillColor(79, 70, 229);
             doc.rect(0, 0, pageWidth, 28, 'F');
 
-            // Title on header
             doc.setFontSize(18);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(255, 255, 255);
             doc.text('Data Export', 14, 13);
 
-            // Subtitle on header
             doc.setFontSize(8);
             doc.setFont('helvetica', 'normal');
             doc.setTextColor(200, 200, 255);
@@ -721,7 +737,6 @@
 
             doc.setTextColor(0);
 
-            // Status column index (for colored cells)
             var statusIdx = -1;
             for (var si = 0; si < columns.length; si++) {
                 if (columns[si].type === 'status') { statusIdx = si; break; }
@@ -782,12 +797,11 @@
                     }
                 },
                 didDrawPage: function (data) {
-                    // Footer
                     var pageCount = doc.internal.getNumberOfPages();
                     doc.setFontSize(7);
                     doc.setTextColor(150);
                     doc.text(
-                        'DataTablePro Export',
+                        brandName + ' Export',
                         14,
                         pageHeight - 8
                     );
@@ -798,7 +812,6 @@
                         { align: 'right' }
                     );
 
-                    // Header bar on subsequent pages
                     if (data.pageNumber > 1) {
                         doc.setFillColor(79, 70, 229);
                         doc.rect(0, 0, pageWidth, 10, 'F');
@@ -837,13 +850,10 @@
 
     $(document).ready(function () {
 
-        // Restore state from URL hash before first load
         loadStateFromUrl();
-
         fetchData();
         fetchDemoMerged();
 
-        // Search with debounce
         $('#searchInput').on('input', function () {
             clearTimeout(debounceTimer);
             var input = $(this);
@@ -855,7 +865,6 @@
             }, 400);
         });
 
-        // Search clear button
         $('#searchClear').on('click', function () {
             $('#searchInput').val('').focus();
             searchTerm  = '';
@@ -864,17 +873,14 @@
             fetchData();
         });
 
-        // Page size change
         $('#pageSize').on('change', function () {
-            perPage     = parseInt($(this).val(), 10) || 10;
+            perPage     = parseInt($(this).val(), 10) || defaultSize;
             currentPage = 1;
             fetchData();
         });
 
-        // Sort header clicks
         bindSortEvents();
 
-        // Pagination clicks (delegated)
         $('#pagination').on('click', '.page-link', function (e) {
             e.preventDefault();
             var $item = $(this).closest('.page-item');
@@ -888,7 +894,6 @@
             }
         });
 
-        // Action buttons (delegated)
         $('#tableBody').on('click', '.action-btn', function () {
             var action = $(this).data('action');
             var id     = $(this).data('id');
@@ -897,7 +902,6 @@
             }
         });
 
-        // Mode toggle: Normal
         $('#modeNormal').on('click', function () {
             if (currentMode === 'normal') return;
             currentMode = 'normal';
@@ -907,7 +911,6 @@
             fetchData();
         });
 
-        // Mode toggle: Grouped
         $('#modeGrouped').on('click', function () {
             if (currentMode === 'grouped') return;
             currentMode = 'grouped';
@@ -917,25 +920,23 @@
             fetchData();
         });
 
-        // Export buttons
-        $('#exportExcel').on('click', function (e) { e.preventDefault(); exportExcel(); });
-        $('#exportPdf').on('click',   function (e) { e.preventDefault(); exportPdf(); });
-        $('#exportCsv').on('click',   function (e) { e.preventDefault(); exportCsv(); });
+        if (config.showExport && exportUrl) {
+            $('#exportExcel').on('click', function (e) { e.preventDefault(); exportExcel(); });
+            $('#exportPdf').on('click',   function (e) { e.preventDefault(); exportPdf(); });
+            $('#exportCsv').on('click',   function (e) { e.preventDefault(); exportCsv(); });
+        }
 
-        // Keyboard shortcut: "/" focuses search
         $(document).on('keydown', function (e) {
             if (e.key === '/' && !$(e.target).is('input, textarea, select')) {
                 e.preventDefault();
                 $('#searchInput').focus();
             }
-            // Escape clears search focus
             if (e.key === 'Escape' && $(e.target).is('#searchInput')) {
                 e.preventDefault();
                 $('#searchInput').blur();
             }
         });
 
-        // Browser back/forward
         $(window).on('hashchange', function () {
             loadStateFromUrl();
             fetchData();
