@@ -35,10 +35,12 @@
     var currentMode    = 'normal';
     var currentColCount = 8;
     var debounceTimer  = null;
+    var filterTimer    = null;
     var activeXhr      = null;
     var columnDefs     = [];
     var primaryKey     = null;
     var hasActions     = false;
+    var columnFilters  = {};
 
     // ---- Helpers ----
 
@@ -69,6 +71,21 @@
 
     // ---- URL State Management ----
 
+    function getActiveFilters() {
+        var active = {};
+        for (var key in columnFilters) {
+            if (columnFilters[key]) active[key] = columnFilters[key];
+        }
+        return active;
+    }
+
+    function hasActiveFilters() {
+        for (var key in columnFilters) {
+            if (columnFilters[key]) return true;
+        }
+        return false;
+    }
+
     function saveStateToUrl() {
         var params = new URLSearchParams();
         if (currentPage > 1)                params.set('page', currentPage);
@@ -77,6 +94,11 @@
         if (sortDirection !== defaultOrder) params.set('order', sortDirection);
         if (currentMode !== 'normal')       params.set('mode', currentMode);
         if (perPage !== defaultSize)        params.set('per_page', perPage);
+
+        var active = getActiveFilters();
+        if (Object.keys(active).length > 0) {
+            params.set('filters', JSON.stringify(active));
+        }
 
         var hash = params.toString();
         history.replaceState(null, '', hash ? '#' + hash : window.location.pathname);
@@ -104,6 +126,15 @@
                 $('#modeGrouped').addClass('active');
                 $('#modeNormal').removeClass('active');
             }
+        }
+
+        if (params.has('filters')) {
+            try {
+                var parsed = JSON.parse(params.get('filters'));
+                if (parsed && typeof parsed === 'object') {
+                    columnFilters = parsed;
+                }
+            } catch (e) {}
         }
 
         $('#pageSize').val(perPage);
@@ -193,18 +224,25 @@
         hideError();
         saveStateToUrl();
 
+        var reqData = {
+            page: currentPage,
+            per_page: perPage,
+            search: searchTerm,
+            sort_column: sortColumn,
+            sort_order: sortDirection,
+            mode: currentMode
+        };
+
+        var active = getActiveFilters();
+        if (Object.keys(active).length > 0) {
+            reqData.filters = active;
+        }
+
         activeXhr = $.ajax({
             url: dataUrl,
             method: 'GET',
             dataType: 'json',
-            data: {
-                page: currentPage,
-                per_page: perPage,
-                search: searchTerm,
-                sort_column: sortColumn,
-                sort_order: sortDirection,
-                mode: currentMode
-            },
+            data: reqData,
             success: function (response) {
                 if (response.error) {
                     showError(response.error);
@@ -286,6 +324,92 @@
         });
     }
 
+    // ---- Column Filter Helpers ----
+
+    function buildFilterRow(cols, showActionCol) {
+        var html = '<tr class="filter-row">';
+        for (var i = 0; i < cols.length; i++) {
+            var col = cols[i];
+            if (col.filterable !== false) {
+                var val = columnFilters[col.key] || '';
+                html += '<th><div class="column-filter-wrap">' +
+                    '<input type="text" class="column-filter" data-column="' + escapeHtml(col.key) + '"' +
+                    ' placeholder="' + escapeHtml(col.label) + '..." value="' + escapeHtml(val) + '">' +
+                    '<button type="button" class="column-filter-clear' + (val ? '' : ' d-none') + '" data-column="' + escapeHtml(col.key) + '" title="Clear">' +
+                    '<i class="bi bi-x"></i></button>' +
+                    '</div></th>';
+            } else {
+                html += '<th></th>';
+            }
+        }
+        if (showActionCol) {
+            var hasAny = hasActiveFilters();
+            html += '<th class="text-center">';
+            if (hasAny) {
+                html += '<button type="button" class="btn-clear-all-filters" title="Clear all filters">' +
+                    '<i class="bi bi-x-circle me-1"></i>Clear</button>';
+            }
+            html += '</th>';
+        }
+        html += '</tr>';
+        return html;
+    }
+
+    function restoreFilterValues() {
+        $('#tableHead .column-filter').each(function () {
+            var key = $(this).data('column');
+            if (columnFilters[key]) {
+                $(this).val(columnFilters[key]);
+                $(this).siblings('.column-filter-clear').removeClass('d-none');
+            }
+        });
+    }
+
+    function bindFilterEvents() {
+        $('#tableHead').off('input', '.column-filter').on('input', '.column-filter', function () {
+            var $input = $(this);
+            var col = $input.data('column');
+            clearTimeout(filterTimer);
+            filterTimer = setTimeout(function () {
+                var val = $input.val().trim();
+                if (val) {
+                    columnFilters[col] = val;
+                    $input.siblings('.column-filter-clear').removeClass('d-none');
+                } else {
+                    delete columnFilters[col];
+                    $input.siblings('.column-filter-clear').addClass('d-none');
+                }
+                currentPage = 1;
+                fetchData();
+            }, 400);
+        });
+
+        $('#tableHead').off('click', '.column-filter-clear').on('click', '.column-filter-clear', function () {
+            var col = $(this).data('column');
+            delete columnFilters[col];
+            $(this).addClass('d-none');
+            $(this).siblings('.column-filter').val('').focus();
+            currentPage = 1;
+            fetchData();
+        });
+
+        $('#tableHead').off('click', '.btn-clear-all-filters').on('click', '.btn-clear-all-filters', function () {
+            columnFilters = {};
+            $('#tableHead .column-filter').val('');
+            $('#tableHead .column-filter-clear').addClass('d-none');
+            $(this).remove();
+            currentPage = 1;
+            fetchData();
+        });
+
+        $('#tableHead').off('keydown', '.column-filter').on('keydown', '.column-filter', function (e) {
+            if (e.key === 'Escape') {
+                $(this).val('').trigger('input');
+                $(this).blur();
+            }
+        });
+    }
+
     // ---- Normal Mode Rendering (type-driven) ----
 
     function renderNormalHeaders(cols) {
@@ -306,9 +430,13 @@
         }
         html += '</tr>';
 
+        html += buildFilterRow(cols, hasActions);
+
         $('#tableHead').html(html);
+        restoreFilterValues();
         updateSortIndicators();
         bindSortEvents();
+        bindFilterEvents();
     }
 
     function renderNormalBody(rows) {
@@ -368,9 +496,13 @@
         }
         html += '</tr>';
 
+        html += buildFilterRow(cols, false);
+
         $('#tableHead').html(html);
+        restoreFilterValues();
         updateSortIndicators();
         bindSortEvents();
+        bindFilterEvents();
     }
 
     function renderGroupedBody(rows) {
@@ -613,15 +745,21 @@
         if (isExporting || !exportUrl) return;
         setExportLoading(true);
 
+        var exportData = {
+            search: searchTerm,
+            sort_column: sortColumn,
+            sort_order: sortDirection
+        };
+        var activeExp = getActiveFilters();
+        if (Object.keys(activeExp).length > 0) {
+            exportData.filters = activeExp;
+        }
+
         $.ajax({
             url: exportUrl,
             method: 'GET',
             dataType: 'json',
-            data: {
-                search: searchTerm,
-                sort_column: sortColumn,
-                sort_order: sortDirection
-            },
+            data: exportData,
             success: function (response) {
                 if (response.error) {
                     showToast('Export failed: ' + response.error, 'error');

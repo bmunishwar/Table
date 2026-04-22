@@ -6,8 +6,8 @@ declare(strict_types=1);
  * Generic server-side DataTable engine.
  *
  * Works with any PostgreSQL table and any existing PDO connection.
- * Configure once — get pagination, sorting, searching, grouped
- * rowspan/colspan, and export for free.
+ * Configure once — get pagination, sorting, searching, column filters,
+ * grouped rowspan/colspan, and export for free.
  *
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  *  QUICK START — drop into any PHP application
@@ -21,7 +21,7 @@ declare(strict_types=1);
  *         'columns'      => [
  *             ['key' => 'product_id', 'label' => 'ID',    'sortable' => true, 'searchable' => false, 'type' => 'id'],
  *             ['key' => 'name',      'label' => 'Name',  'sortable' => true, 'searchable' => true,  'type' => 'name'],
- *             ['key' => 'price',     'label' => 'Price', 'sortable' => true, 'searchable' => false],
+ *             ['key' => 'price',     'label' => 'Price', 'sortable' => true, 'searchable' => false, 'filterable' => true],
  *             ['key' => 'category',  'label' => 'Category', 'sortable' => true, 'searchable' => true],
  *         ],
  *         'default_sort'  => 'product_id',
@@ -58,6 +58,7 @@ class DataTable
 
     private array $sortableKeys   = [];
     private array $searchableKeys = [];
+    private array $filterableKeys = [];
     private array $allKeys        = [];
 
     public function __construct(array $config, ?PDO $pdo = null)
@@ -73,15 +74,15 @@ class DataTable
             if (!empty($col['searchable'])) {
                 $this->searchableKeys[] = $col['key'];
             }
+            $filterable = $col['filterable'] ?? ($col['searchable'] ?? true);
+            if ($filterable) {
+                $this->filterableKeys[] = $col['key'];
+            }
         }
     }
 
     /**
      * One-liner for AJAX endpoints. Reads $_GET, runs the query, sends JSON.
-     *
-     * @param array       $config      Table configuration array
-     * @param PDO|null    $pdo         Your PDO connection (null = use Database::getConnection())
-     * @param string|null $forceAction 'data' | 'export' | null (auto-detect from $_GET['action'])
      */
     public static function handleRequest(array $config, ?PDO $pdo = null, ?string $forceAction = null): void
     {
@@ -95,6 +96,12 @@ class DataTable
         $sortOrder  = (string) ($_GET['sort_order'] ?? $config['default_order'] ?? 'asc');
         $mode       = (string) ($_GET['mode'] ?? 'normal');
 
+        $filtersRaw = $_GET['filters'] ?? [];
+        if (is_string($filtersRaw)) {
+            $filtersRaw = json_decode($filtersRaw, true) ?: [];
+        }
+        $filters = is_array($filtersRaw) ? $filtersRaw : [];
+
         $allowedPerPage = [5, 10, 25, 50, 100];
         if (!in_array($perPage, $allowedPerPage, true)) {
             $perPage = 10;
@@ -105,12 +112,12 @@ class DataTable
             if ($action === 'export') {
                 $result = [
                     'columns' => $dt->getColumnDefs(),
-                    'data'    => $dt->getAllData($search, $sortColumn, $sortOrder),
+                    'data'    => $dt->getAllData($search, $sortColumn, $sortOrder, $filters),
                 ];
             } elseif ($mode === 'grouped' && !empty($config['group_by'])) {
-                $result = $dt->getGroupedData($page, $perPage, $search, $sortColumn, $sortOrder);
+                $result = $dt->getGroupedData($page, $perPage, $search, $sortColumn, $sortOrder, $filters);
             } else {
-                $result = $dt->getData($page, $perPage, $search, $sortColumn, $sortOrder);
+                $result = $dt->getData($page, $perPage, $search, $sortColumn, $sortOrder, $filters);
             }
         } catch (\Throwable $e) {
             error_log('[DataTable] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
@@ -139,9 +146,10 @@ class DataTable
         $defs = [];
         foreach ($this->config['columns'] as $col) {
             $def = [
-                'key'      => $col['key'],
-                'label'    => $col['label'],
-                'sortable' => !empty($col['sortable']),
+                'key'        => $col['key'],
+                'label'      => $col['label'],
+                'sortable'   => !empty($col['sortable']),
+                'filterable' => in_array($col['key'], $this->filterableKeys, true),
             ];
             if (!empty($col['type'])) {
                 $def['type'] = $col['type'];
@@ -156,7 +164,8 @@ class DataTable
         int    $perPage,
         string $search,
         string $sortColumn,
-        string $sortOrder
+        string $sortOrder,
+        array  $filters = []
     ): array {
         $page    = max(1, $page);
         $perPage = max(1, $perPage);
@@ -166,11 +175,12 @@ class DataTable
         $sortOrder  = $this->validateSortOrder($sortOrder);
         $offset     = ($page - 1) * $perPage;
 
-        [$whereClause, $bindings] = $this->buildSearchClause($search);
+        [$whereClause, $bindings] = $this->buildCombinedWhereClause($search, $filters);
         $selectCols = $this->buildSelectColumns();
 
-        $totalRecords    = $this->countRows($table, '', []);
-        $filteredRecords = ($search !== '')
+        $totalRecords = $this->countRows($table, '', []);
+        $hasFilters   = ($search !== '' || !empty($this->sanitizeFilters($filters)));
+        $filteredRecords = $hasFilters
             ? $this->countRows($table, $whereClause, $bindings)
             : $totalRecords;
 
@@ -207,7 +217,8 @@ class DataTable
         int    $perPage,
         string $search,
         string $sortColumn,
-        string $sortOrder
+        string $sortOrder,
+        array  $filters = []
     ): array {
         $page    = max(1, $page);
         $perPage = max(1, $perPage);
@@ -215,17 +226,18 @@ class DataTable
 
         $groupByKey = $this->config['group_by'] ?? $this->allKeys[0] ?? null;
         if (!$groupByKey || !in_array($groupByKey, $this->allKeys, true)) {
-            return $this->getData($page, $perPage, $search, $sortColumn, $sortOrder);
+            return $this->getData($page, $perPage, $search, $sortColumn, $sortOrder, $filters);
         }
 
         $sortColumn = $this->validateSortColumn($sortColumn, $groupByKey);
         $sortOrder  = $this->validateSortOrder($sortOrder);
 
-        [$whereClause, $bindings] = $this->buildSearchClause($search);
+        [$whereClause, $bindings] = $this->buildCombinedWhereClause($search, $filters);
         $selectCols = $this->buildSelectColumns();
 
-        $totalRecords    = $this->countRows($table, '', []);
-        $filteredRecords = ($search !== '')
+        $totalRecords = $this->countRows($table, '', []);
+        $hasFilters   = ($search !== '' || !empty($this->sanitizeFilters($filters)));
+        $filteredRecords = $hasFilters
             ? $this->countRows($table, $whereClause, $bindings)
             : $totalRecords;
 
@@ -317,14 +329,14 @@ class DataTable
         ];
     }
 
-    public function getAllData(string $search, string $sortColumn, string $sortOrder): array
+    public function getAllData(string $search, string $sortColumn, string $sortOrder, array $filters = []): array
     {
         $table      = $this->safeTable();
         $sortColumn = $this->validateSortColumn($sortColumn);
         $sortOrder  = $this->validateSortOrder($sortOrder);
         $selectCols = $this->buildSelectColumns();
 
-        [$whereClause, $bindings] = $this->buildSearchClause($search);
+        [$whereClause, $bindings] = $this->buildCombinedWhereClause($search, $filters);
 
         $sql  = "SELECT {$selectCols} FROM {$table} {$whereClause} ORDER BY {$sortColumn} {$sortOrder}";
         $stmt = $this->db->prepare($sql);
@@ -379,23 +391,58 @@ class DataTable
         return in_array($order, ['ASC', 'DESC'], true) ? $order : 'ASC';
     }
 
-    private function buildSearchClause(string $search): array
+    private function sanitizeFilters(array $filters): array
     {
-        if ($search === '' || empty($this->searchableKeys)) {
+        $clean = [];
+        foreach ($filters as $col => $value) {
+            $value = trim((string) $value);
+            if ($value === '') {
+                continue;
+            }
+            if (!in_array($col, $this->filterableKeys, true)) {
+                continue;
+            }
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $col)) {
+                continue;
+            }
+            $clean[$col] = $value;
+        }
+        return $clean;
+    }
+
+    private function buildCombinedWhereClause(string $search, array $filters): array
+    {
+        $parts    = [];
+        $bindings = [];
+
+        // Global search (OR across searchable columns)
+        if ($search !== '' && !empty($this->searchableKeys)) {
+            $escaped    = $this->escapeLikeWildcards($search);
+            $conditions = [];
+            foreach ($this->searchableKeys as $i => $col) {
+                $param = ":search{$i}";
+                $conditions[]     = "CAST({$col} AS TEXT) ILIKE {$param} ESCAPE '\\'";
+                $bindings[$param] = "%{$escaped}%";
+            }
+            $parts[] = '(' . implode(' OR ', $conditions) . ')';
+        }
+
+        // Per-column filters (AND)
+        $cleanFilters = $this->sanitizeFilters($filters);
+        $fi = 0;
+        foreach ($cleanFilters as $col => $value) {
+            $param = ":filter{$fi}";
+            $escaped = $this->escapeLikeWildcards($value);
+            $parts[]          = "CAST({$col} AS TEXT) ILIKE {$param} ESCAPE '\\'";
+            $bindings[$param] = "%{$escaped}%";
+            $fi++;
+        }
+
+        if (empty($parts)) {
             return ['', []];
         }
 
-        $escaped    = $this->escapeLikeWildcards($search);
-        $conditions = [];
-        $bindings   = [];
-
-        foreach ($this->searchableKeys as $i => $col) {
-            $param = ":search{$i}";
-            $conditions[]     = "CAST({$col} AS TEXT) ILIKE {$param} ESCAPE '\\'";
-            $bindings[$param] = "%{$escaped}%";
-        }
-
-        return ['WHERE ' . implode(' OR ', $conditions), $bindings];
+        return ['WHERE ' . implode(' AND ', $parts), $bindings];
     }
 
     private function countRows(string $table, string $whereClause, array $bindings): int
