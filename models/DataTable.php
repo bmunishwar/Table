@@ -153,6 +153,7 @@ class DataTable
                 'key'        => $col['key'],
                 'label'      => $col['label'],
                 'sortable'   => !empty($col['sortable']),
+                'searchable' => in_array($col['key'], $this->searchableKeys, true),
                 'filterable' => in_array($col['key'], $this->filterableKeys, true),
             ];
             if (!empty($col['type'])) {
