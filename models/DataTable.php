@@ -60,6 +60,7 @@ class DataTable
     private array $searchableKeys = [];
     private array $filterableKeys = [];
     private array $allKeys        = [];
+    private array $exactFilterKeys = [];
 
     public function __construct(array $config, ?PDO $pdo = null)
     {
@@ -77,6 +78,9 @@ class DataTable
             $filterable = $col['filterable'] ?? ($col['searchable'] ?? true);
             if ($filterable) {
                 $this->filterableKeys[] = $col['key'];
+            }
+            if (!empty($col['filter_options'])) {
+                $this->exactFilterKeys[] = $col['key'];
             }
         }
     }
@@ -456,9 +460,14 @@ class DataTable
                 }
             } else {
                 $param = ":filter{$fi}";
-                $escaped = $this->escapeLikeWildcards($value);
-                $parts[]          = "CAST({$col} AS TEXT) ILIKE {$param} ESCAPE '\\'";
-                $bindings[$param] = "%{$escaped}%";
+                if (in_array($col, $this->exactFilterKeys, true)) {
+                    $parts[]          = "CAST({$col} AS TEXT) ILIKE {$param}";
+                    $bindings[$param] = $value;
+                } else {
+                    $escaped = $this->escapeLikeWildcards($value);
+                    $parts[]          = "CAST({$col} AS TEXT) ILIKE {$param} ESCAPE '\\'";
+                    $bindings[$param] = "%{$escaped}%";
+                }
             }
             $fi++;
         }

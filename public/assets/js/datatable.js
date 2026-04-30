@@ -200,24 +200,25 @@
     function renderCellByType(value, type, highlightTerms) {
         if (value === null || value === undefined) value = '';
         var escaped = escapeHtml(value);
+        var highlighted = escaped;
 
         if (highlightTerms && highlightTerms.length > 0) {
             for (var h = 0; h < highlightTerms.length; h++) {
                 if (highlightTerms[h]) {
-                    escaped = highlightMatch(escaped, highlightTerms[h]);
+                    highlighted = highlightMatch(highlighted, highlightTerms[h]);
                 }
             }
         }
 
         switch (type) {
             case 'id':
-                return '<span class="cell-id">#' + escaped + '</span>';
+                return '<span class="cell-id">#' + highlighted + '</span>';
 
             case 'name':
-                return '<span class="cell-name">' + escaped + '</span>';
+                return '<span class="cell-name">' + highlighted + '</span>';
 
             case 'email':
-                return '<a href="mailto:' + escaped + '" class="cell-email">' + escaped + '</a>';
+                return '<a href="mailto:' + escaped + '" class="cell-email">' + highlighted + '</a>';
 
             case 'status':
                 var lower = String(value).toLowerCase();
@@ -229,13 +230,13 @@
                 } else if (lower === 'pending' || lower === 'waiting' || lower === 'draft') {
                     cls = 'status-pending';
                 }
-                return '<span class="status-badge ' + cls + '"><span class="status-dot"></span>' + escaped + '</span>';
+                return '<span class="status-badge ' + cls + '"><span class="status-dot"></span>' + highlighted + '</span>';
 
             case 'date':
-                return '<span class="cell-date">' + escaped + '</span>';
+                return '<span class="cell-date">' + highlighted + '</span>';
 
             default:
-                return escaped;
+                return highlighted;
         }
     }
 
@@ -1152,14 +1153,14 @@
                 },
                 columnStyles: (function () {
                     var styles = {};
-                    for (var ci = 0; ci < columns.length; ci++) {
-                        if (columns[ci].type === 'id') {
+                    for (var ci = 0; ci < visCols.length; ci++) {
+                        if (visCols[ci].type === 'id') {
                             styles[ci] = { fontStyle: 'bold', textColor: [120, 120, 120], fontSize: 7 };
                         }
-                        if (columns[ci].type === 'email') {
+                        if (visCols[ci].type === 'email') {
                             styles[ci] = { textColor: [70, 70, 150], fontSize: 7 };
                         }
-                        if (columns[ci].type === 'name') {
+                        if (visCols[ci].type === 'name') {
                             styles[ci] = { fontStyle: 'bold' };
                         }
                     }
