@@ -41,6 +41,38 @@
     var primaryKey     = null;
     var hasActions     = false;
     var columnFilters  = {};
+    var isInitialLoad  = true;
+    var actionDefs     = [];
+    var lastFetchedRows = [];
+    var selectedIds    = {};
+    var hiddenColumns  = (function () {
+        try { return JSON.parse(localStorage.getItem('dtpro-hidden-cols')) || {}; } catch (e) { return {}; }
+    })();
+
+    // ---- Dark Mode (immediate to prevent FOUC) ----
+    function initDarkMode() {
+        var stored = localStorage.getItem('dtpro-theme');
+        var theme;
+        if (stored) {
+            theme = stored;
+        } else {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        applyTheme(theme);
+    }
+
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-bs-theme', theme);
+        var icon = document.querySelector('#darkModeToggle i');
+        if (icon) {
+            icon.className = theme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+        }
+        localStorage.setItem('dtpro-theme', theme);
+    }
+
+    if (config.showDarkMode !== false) {
+        initDarkMode();
+    }
 
     // ---- Helpers ----
 
@@ -49,6 +81,14 @@
         var s = String(str);
         var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
         return s.replace(/[&<>"']/g, function (c) { return map[c]; });
+    }
+
+    function highlightMatch(escapedStr, rawSearchTerm) {
+        if (!rawSearchTerm || !escapedStr) return escapedStr;
+        var escapedTerm = escapeHtml(rawSearchTerm);
+        var safeRegex = escapedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var regex = new RegExp('(' + safeRegex + ')', 'gi');
+        return escapedStr.replace(regex, '<mark>$1</mark>');
     }
 
     function emptyStateHtml(icon, text) {
@@ -69,6 +109,20 @@
             String(d.getSeconds()).padStart(2, '0');
     }
 
+    function renderSkeletonRows(colCount) {
+        var widths = ['skeleton-cell--wide', 'skeleton-cell--med', 'skeleton-cell--short'];
+        var html = '';
+        for (var r = 0; r < 8; r++) {
+            html += '<tr class="skeleton-row">';
+            for (var c = 0; c < colCount; c++) {
+                var w = widths[(r + c) % 3];
+                html += '<td><div class="skeleton-cell ' + w + '"></div></td>';
+            }
+            html += '</tr>';
+        }
+        return html;
+    }
+
     // ---- URL State Management ----
 
     function getActiveFilters() {
@@ -81,7 +135,8 @@
 
     function hasActiveFilters() {
         for (var key in columnFilters) {
-            if (columnFilters[key]) return true;
+            var v = columnFilters[key];
+            if (v && (typeof v === 'string' || (typeof v === 'object' && Object.keys(v).length > 0))) return true;
         }
         return false;
     }
@@ -142,9 +197,17 @@
 
     // ---- Column Type Renderers ----
 
-    function renderCellByType(value, type) {
+    function renderCellByType(value, type, highlightTerms) {
         if (value === null || value === undefined) value = '';
         var escaped = escapeHtml(value);
+
+        if (highlightTerms && highlightTerms.length > 0) {
+            for (var h = 0; h < highlightTerms.length; h++) {
+                if (highlightTerms[h]) {
+                    escaped = highlightMatch(escaped, highlightTerms[h]);
+                }
+            }
+        }
 
         switch (type) {
             case 'id':
@@ -254,13 +317,15 @@
                 if (response.columns) columnDefs = response.columns;
                 primaryKey = response.primary_key || null;
                 hasActions = !!response.has_actions;
+                if (response.actions && response.actions.length > 0) actionDefs = response.actions;
+                lastFetchedRows = response.data || [];
 
                 if (response.mode === 'grouped') {
                     currentColCount = columnDefs.length || 6;
                     renderGroupedHeaders(columnDefs);
                     renderGroupedBody(response.data);
                 } else {
-                    currentColCount = columnDefs.length + (hasActions ? 1 : 0);
+                    currentColCount = (primaryKey ? 1 : 0) + columnDefs.length + (hasActions ? 1 : 0);
                     renderNormalHeaders(columnDefs);
                     renderNormalBody(response.data);
                 }
@@ -268,6 +333,7 @@
                 renderPagination(response);
                 renderInfo(response);
                 updateSearchClear();
+                resetSelection();
             },
             error: function (xhr, status) {
                 if (status === 'abort') return;
@@ -328,18 +394,45 @@
 
     function buildFilterRow(cols, showActionCol) {
         var html = '<tr class="filter-row">';
+        if (primaryKey && currentMode === 'normal') {
+            html += '<th class="col-checkbox"></th>';
+        }
         for (var i = 0; i < cols.length; i++) {
             var col = cols[i];
             if (col.filterable !== false) {
-                var val = columnFilters[col.key] || '';
-                html += '<th><div class="column-filter-wrap">' +
-                    '<input type="text" class="column-filter" data-column="' + escapeHtml(col.key) + '"' +
-                    ' placeholder="' + escapeHtml(col.label) + '..." value="' + escapeHtml(val) + '">' +
-                    '<button type="button" class="column-filter-clear' + (val ? '' : ' d-none') + '" data-column="' + escapeHtml(col.key) + '" title="Clear">' +
-                    '<i class="bi bi-x"></i></button>' +
-                    '</div></th>';
+                if (col.filter_options && col.filter_options.length > 0) {
+                    var selVal = columnFilters[col.key] || '';
+                    html += '<th data-col="' + escapeHtml(col.key) + '"><select class="column-filter-select" data-column="' + escapeHtml(col.key) + '"' +
+                        ' aria-label="Filter by ' + escapeHtml(col.label) + '">' +
+                        '<option value="">All</option>';
+                    for (var o = 0; o < col.filter_options.length; o++) {
+                        var opt = col.filter_options[o];
+                        var optSelected = selVal === opt ? ' selected' : '';
+                        html += '<option value="' + escapeHtml(opt) + '"' + optSelected + '>' + escapeHtml(opt) + '</option>';
+                    }
+                    html += '</select></th>';
+                } else if (col.type === 'date') {
+                    var dateVal = columnFilters[col.key];
+                    var fromVal = '', toVal = '';
+                    if (dateVal && typeof dateVal === 'object') { fromVal = dateVal.from || ''; toVal = dateVal.to || ''; }
+                    html += '<th data-col="' + escapeHtml(col.key) + '"><div class="column-filter-date-wrap">' +
+                        '<input type="date" class="column-filter-date" data-column="' + escapeHtml(col.key) + '" data-range="from"' +
+                        ' value="' + escapeHtml(fromVal) + '" title="From" aria-label="Filter ' + escapeHtml(col.label) + ' from">' +
+                        '<input type="date" class="column-filter-date" data-column="' + escapeHtml(col.key) + '" data-range="to"' +
+                        ' value="' + escapeHtml(toVal) + '" title="To" aria-label="Filter ' + escapeHtml(col.label) + ' to">' +
+                        '</div></th>';
+                } else {
+                    var val = columnFilters[col.key] || '';
+                    html += '<th data-col="' + escapeHtml(col.key) + '"><div class="column-filter-wrap">' +
+                        '<input type="text" class="column-filter" data-column="' + escapeHtml(col.key) + '"' +
+                        ' placeholder="' + escapeHtml(col.label) + '..." value="' + escapeHtml(val) + '"' +
+                        ' aria-label="Filter by ' + escapeHtml(col.label) + '">' +
+                        '<button type="button" class="column-filter-clear' + (val ? '' : ' d-none') + '" data-column="' + escapeHtml(col.key) + '" title="Clear">' +
+                        '<i class="bi bi-x"></i></button>' +
+                        '</div></th>';
+                }
             } else {
-                html += '<th></th>';
+                html += '<th data-col="' + escapeHtml(col.key) + '"></th>';
             }
         }
         if (showActionCol) {
@@ -358,11 +451,52 @@
     function restoreFilterValues() {
         $('#tableHead .column-filter').each(function () {
             var key = $(this).data('column');
-            if (columnFilters[key]) {
+            if (columnFilters[key] && typeof columnFilters[key] === 'string') {
                 $(this).val(columnFilters[key]);
                 $(this).siblings('.column-filter-clear').removeClass('d-none');
             }
         });
+        $('#tableHead .column-filter-select').each(function () {
+            var key = $(this).data('column');
+            if (columnFilters[key]) $(this).val(columnFilters[key]);
+        });
+        $('#tableHead .column-filter-date').each(function () {
+            var key = $(this).data('column');
+            var range = $(this).data('range');
+            if (columnFilters[key] && typeof columnFilters[key] === 'object') {
+                $(this).val(columnFilters[key][range] || '');
+            }
+        });
+    }
+
+    function buildColumnToggleMenu() {
+        var $menu = $('#columnToggleMenu');
+        if (!$menu.length || !columnDefs.length) return;
+        var html = '';
+        for (var i = 0; i < columnDefs.length; i++) {
+            var col = columnDefs[i];
+            var checked = !hiddenColumns[col.key] ? ' checked' : '';
+            html += '<li><label class="dropdown-item d-flex align-items-center gap-2">' +
+                '<input type="checkbox" class="form-check-input col-toggle-check" data-col-key="' + escapeHtml(col.key) + '"' + checked + '>' +
+                escapeHtml(col.label) + '</label></li>';
+        }
+        $menu.html(html);
+    }
+
+    function applyColumnVisibility() {
+        for (var i = 0; i < columnDefs.length; i++) {
+            var key = columnDefs[i].key;
+            var sel = '[data-col="' + key + '"]';
+            if (hiddenColumns[key]) {
+                $(sel).addClass('d-none');
+            } else {
+                $(sel).removeClass('d-none');
+            }
+        }
+    }
+
+    function saveHiddenColumns() {
+        localStorage.setItem('dtpro-hidden-cols', JSON.stringify(hiddenColumns));
     }
 
     function bindFilterEvents() {
@@ -393,10 +527,32 @@
             fetchData();
         });
 
+        $('#tableHead').off('change', '.column-filter-select').on('change', '.column-filter-select', function () {
+            var col = $(this).data('column');
+            var val = $(this).val();
+            if (val) { columnFilters[col] = val; } else { delete columnFilters[col]; }
+            currentPage = 1;
+            fetchData();
+        });
+
+        $('#tableHead').off('change', '.column-filter-date').on('change', '.column-filter-date', function () {
+            var col = $(this).data('column');
+            var range = $(this).data('range');
+            var current = columnFilters[col];
+            if (!current || typeof current !== 'object') current = {};
+            var val = $(this).val();
+            if (val) { current[range] = val; } else { delete current[range]; }
+            if (Object.keys(current).length > 0) { columnFilters[col] = current; } else { delete columnFilters[col]; }
+            currentPage = 1;
+            fetchData();
+        });
+
         $('#tableHead').off('click', '.btn-clear-all-filters').on('click', '.btn-clear-all-filters', function () {
             columnFilters = {};
             $('#tableHead .column-filter').val('');
             $('#tableHead .column-filter-clear').addClass('d-none');
+            $('#tableHead .column-filter-select').val('');
+            $('#tableHead .column-filter-date').val('');
             $(this).remove();
             currentPage = 1;
             fetchData();
@@ -407,6 +563,14 @@
                 $(this).val('').trigger('input');
                 $(this).blur();
             }
+            if (e.key === 'Enter') {
+                clearTimeout(filterTimer);
+                var val = $(this).val().trim();
+                var col = $(this).data('column');
+                if (val) { columnFilters[col] = val; } else { delete columnFilters[col]; }
+                currentPage = 1;
+                fetchData();
+            }
         });
     }
 
@@ -416,17 +580,24 @@
         if (!cols || cols.length === 0) return;
 
         var html = '<tr>';
+        if (primaryKey) {
+            html += '<th scope="col" class="col-checkbox"><input type="checkbox" class="form-check-input" id="selectAll" aria-label="Select all rows"></th>';
+        }
         for (var i = 0; i < cols.length; i++) {
             var col = cols[i];
             if (col.sortable) {
-                html += '<th data-sort="' + escapeHtml(col.key) + '" class="sortable">' +
+                var ariaSort = 'none';
+                if (sortColumn === col.key) {
+                    ariaSort = sortDirection === 'asc' ? 'ascending' : 'descending';
+                }
+                html += '<th scope="col" data-sort="' + escapeHtml(col.key) + '" data-col="' + escapeHtml(col.key) + '" class="sortable" aria-sort="' + ariaSort + '">' +
                         escapeHtml(col.label) + ' <span class="sort-icon"></span></th>';
             } else {
-                html += '<th>' + escapeHtml(col.label) + '</th>';
+                html += '<th scope="col" data-col="' + escapeHtml(col.key) + '">' + escapeHtml(col.label) + '</th>';
             }
         }
         if (hasActions) {
-            html += '<th class="text-center" style="width:130px">Actions</th>';
+            html += '<th scope="col" class="text-center" style="width:130px">Actions</th>';
         }
         html += '</tr>';
 
@@ -437,6 +608,8 @@
         updateSortIndicators();
         bindSortEvents();
         bindFilterEvents();
+        buildColumnToggleMenu();
+        applyColumnVisibility();
     }
 
     function renderNormalBody(rows) {
@@ -453,30 +626,50 @@
             var row = rows[i];
             html += '<tr class="fade-in">';
 
+            if (primaryKey) {
+                var rowId = escapeHtml(row[primaryKey]);
+                var chk = selectedIds[row[primaryKey]] ? ' checked' : '';
+                html += '<td class="col-checkbox"><input type="checkbox" class="form-check-input row-select" data-id="' + rowId + '"' + chk + ' aria-label="Select row ' + rowId + '"></td>';
+            }
+
             for (var c = 0; c < columnDefs.length; c++) {
                 var col = columnDefs[c];
-                html += '<td>' + renderCellByType(row[col.key], col.type) + '</td>';
+                var terms = [];
+                if (col.type !== 'status' && col.type !== 'date') {
+                    if (searchTerm && col.searchable !== false) terms.push(searchTerm);
+                    if (columnFilters[col.key] && typeof columnFilters[col.key] === 'string' && columnFilters[col.key].charAt(0) !== '{') {
+                        terms.push(columnFilters[col.key]);
+                    }
+                }
+                html += '<td data-col="' + escapeHtml(col.key) + '">' + renderCellByType(row[col.key], col.type, terms) + '</td>';
             }
 
             if (hasActions && primaryKey) {
                 var pkVal = escapeHtml(row[primaryKey]);
-                html += '<td class="text-center action-btns">' +
-                    '<button class="action-btn btn-view" data-action="view" data-id="' + pkVal + '" title="View">' +
-                        '<i class="bi bi-eye"></i>' +
-                    '</button>' +
-                    '<button class="action-btn btn-edit" data-action="edit" data-id="' + pkVal + '" title="Edit">' +
-                        '<i class="bi bi-pencil"></i>' +
-                    '</button>' +
-                    '<button class="action-btn btn-delete" data-action="delete" data-id="' + pkVal + '" title="Delete">' +
-                        '<i class="bi bi-trash3"></i>' +
-                    '</button>' +
-                '</td>';
+                html += '<td class="text-center action-btns">';
+                if (actionDefs.length > 0) {
+                    for (var a = 0; a < actionDefs.length; a++) {
+                        var act = actionDefs[a];
+                        html += '<button class="action-btn ' + escapeHtml(act['class'] || '') + '" data-action="' + escapeHtml(act.key) + '" data-id="' + pkVal + '"' +
+                            ' title="' + escapeHtml(act.label) + '" aria-label="' + escapeHtml(act.label) + ' record #' + pkVal + '">' +
+                            '<i class="bi ' + escapeHtml(act.icon) + '"></i></button>';
+                    }
+                } else {
+                    html += '<button class="action-btn btn-view" data-action="view" data-id="' + pkVal + '" title="View" aria-label="View record #' + pkVal + '">' +
+                            '<i class="bi bi-eye"></i></button>' +
+                        '<button class="action-btn btn-edit" data-action="edit" data-id="' + pkVal + '" title="Edit" aria-label="Edit record #' + pkVal + '">' +
+                            '<i class="bi bi-pencil"></i></button>' +
+                        '<button class="action-btn btn-delete" data-action="delete" data-id="' + pkVal + '" title="Delete" aria-label="Delete record #' + pkVal + '">' +
+                            '<i class="bi bi-trash3"></i></button>';
+                }
+                html += '</td>';
             }
 
             html += '</tr>';
         }
 
         tbody.html(html);
+        applyColumnVisibility();
     }
 
     // ---- Grouped Mode ----
@@ -488,10 +681,14 @@
         for (var i = 0; i < cols.length; i++) {
             var col = cols[i];
             if (col.sortable) {
-                html += '<th data-sort="' + escapeHtml(col.key) + '" class="sortable">' +
+                var ariaSort = 'none';
+                if (sortColumn === col.key) {
+                    ariaSort = sortDirection === 'asc' ? 'ascending' : 'descending';
+                }
+                html += '<th scope="col" data-sort="' + escapeHtml(col.key) + '" class="sortable" aria-sort="' + ariaSort + '">' +
                         escapeHtml(col.label) + ' <span class="sort-icon"></span></th>';
             } else {
-                html += '<th>' + escapeHtml(col.label) + '</th>';
+                html += '<th scope="col">' + escapeHtml(col.label) + '</th>';
             }
         }
         html += '</tr>';
@@ -554,7 +751,7 @@
         var html = '';
 
         html += '<li class="page-item ' + (current === 1 ? 'disabled' : '') + '">' +
-                '<a class="page-link" href="#" data-page="' + (current - 1) + '">&laquo;</a></li>';
+                '<a class="page-link" href="#" data-page="' + (current - 1) + '" aria-label="Go to previous page">&laquo;</a></li>';
 
         var pages = generatePageNumbers(current, total);
         for (var i = 0; i < pages.length; i++) {
@@ -562,13 +759,15 @@
             if (p === '...') {
                 html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
             } else {
-                html += '<li class="page-item ' + (p === current ? 'active' : '') + '">' +
-                        '<a class="page-link" href="#" data-page="' + p + '">' + p + '</a></li>';
+                var isActive = p === current;
+                html += '<li class="page-item ' + (isActive ? 'active' : '') + '">' +
+                        '<a class="page-link" href="#" data-page="' + p + '" aria-label="Go to page ' + p + '"' +
+                        (isActive ? ' aria-current="page"' : '') + '>' + p + '</a></li>';
             }
         }
 
         html += '<li class="page-item ' + (current === total ? 'disabled' : '') + '">' +
-                '<a class="page-link" href="#" data-page="' + (current + 1) + '">&raquo;</a></li>';
+                '<a class="page-link" href="#" data-page="' + (current + 1) + '" aria-label="Go to next page">&raquo;</a></li>';
 
         pagination.html(html);
     }
@@ -630,9 +829,10 @@
     // ---- Sort Indicators ----
 
     function updateSortIndicators() {
-        $('#tableHead .sortable').removeClass('sort-asc sort-desc');
+        $('#tableHead .sortable').removeClass('sort-asc sort-desc').attr('aria-sort', 'none');
         $('#tableHead .sortable[data-sort="' + sortColumn + '"]')
-            .addClass(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+            .addClass(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc')
+            .attr('aria-sort', sortDirection === 'asc' ? 'ascending' : 'descending');
     }
 
     function bindSortEvents() {
@@ -669,8 +869,14 @@
 
     function showLoading(show) {
         if (show) {
-            $('#loadingOverlay').removeClass('d-none');
+            if (isInitialLoad) {
+                $('#loadingOverlay').addClass('d-none');
+                $('#tableBody').html(renderSkeletonRows(currentColCount));
+            } else {
+                $('#loadingOverlay').removeClass('d-none');
+            }
         } else {
+            isInitialLoad = false;
             $('#loadingOverlay').addClass('d-none');
         }
     }
@@ -682,6 +888,45 @@
 
     function hideError() {
         $('#errorAlert').addClass('d-none');
+    }
+
+    function getSelectedCount() {
+        return Object.keys(selectedIds).length;
+    }
+
+    function resetSelection() {
+        selectedIds = {};
+        $('#selectAll').prop('checked', false);
+        updateBulkActionBar();
+    }
+
+    function updateBulkActionBar() {
+        var count = getSelectedCount();
+        var $bar = $('#bulkActionBar');
+        if (count > 0) {
+            if (!$bar.length) {
+                var barHtml = '<div id="bulkActionBar" class="bulk-action-bar">' +
+                    '<div class="d-flex align-items-center gap-3">' +
+                    '<span class="bulk-count"><strong id="bulkCount">' + count + '</strong> selected</span>' +
+                    '<button class="btn btn-sm btn-outline-danger bulk-btn" data-bulk="delete"><i class="bi bi-trash3 me-1"></i>Delete</button>' +
+                    '<button class="btn btn-sm btn-outline-primary bulk-btn" data-bulk="export"><i class="bi bi-download me-1"></i>Export</button>' +
+                    '</div>' +
+                    '<button class="btn btn-sm btn-link text-muted" id="bulkClearAll">Clear selection</button>' +
+                    '</div>';
+                $('.table-card').append(barHtml);
+            } else {
+                $bar.find('#bulkCount').text(count);
+                $bar.removeClass('d-none');
+            }
+        } else {
+            $bar.addClass('d-none');
+        }
+    }
+
+    function syncSelectAll() {
+        var $checks = $('#tableBody .row-select');
+        var allChecked = $checks.length > 0 && $checks.filter(':checked').length === $checks.length;
+        $('#selectAll').prop('checked', allChecked);
     }
 
     function scrollToTable() {
@@ -783,12 +1028,13 @@
     }
 
     function buildExportData(columns, rows) {
-        var headers = columns.map(function (c) { return c.label; });
-        var keys    = columns.map(function (c) { return c.key; });
+        var visible = columns.filter(function (c) { return !hiddenColumns[c.key]; });
+        var headers = visible.map(function (c) { return c.label; });
+        var keys    = visible.map(function (c) { return c.key; });
         var data    = rows.map(function (row) {
             return keys.map(function (k) { return row[k] !== undefined ? row[k] : ''; });
         });
-        return { headers: headers, keys: keys, data: data };
+        return { headers: headers, keys: keys, data: data, columns: visible };
     }
 
     function exportExcel() {
@@ -876,8 +1122,9 @@
             doc.setTextColor(0);
 
             var statusIdx = -1;
-            for (var si = 0; si < columns.length; si++) {
-                if (columns[si].type === 'status') { statusIdx = si; break; }
+            var visCols = exp.columns || columns;
+            for (var si = 0; si < visCols.length; si++) {
+                if (visCols[si].type === 'status') { statusIdx = si; break; }
             }
 
             doc.autoTable({
@@ -969,6 +1216,17 @@
     // ---- Action Handlers ----
 
     function handleAction(action, id) {
+        var row = null;
+        for (var r = 0; r < lastFetchedRows.length; r++) {
+            if (primaryKey && String(lastFetchedRows[r][primaryKey]) === String(id)) {
+                row = lastFetchedRows[r];
+                break;
+            }
+        }
+        if (window.DataTablePro && typeof window.DataTablePro.onAction === 'function') {
+            window.DataTablePro.onAction(action, id, row);
+            return;
+        }
         switch (action) {
             case 'view':
                 alert('View record #' + id + '\n\n(Not implemented — placeholder action)');
@@ -981,6 +1239,8 @@
                     alert('Delete record #' + id + '\n\n(Not implemented — placeholder action)');
                 }
                 break;
+            default:
+                alert(action + ' record #' + id + '\n\n(Not implemented — placeholder action)');
         }
     }
 
@@ -1032,6 +1292,38 @@
             }
         });
 
+        $('#tableHead').on('change', '#selectAll', function () {
+            var checked = $(this).is(':checked');
+            $('#tableBody .row-select').each(function () {
+                $(this).prop('checked', checked);
+                var id = $(this).data('id');
+                if (checked) { selectedIds[id] = true; } else { delete selectedIds[id]; }
+            });
+            updateBulkActionBar();
+        });
+
+        $('#tableBody').on('change', '.row-select', function () {
+            var id = $(this).data('id');
+            if ($(this).is(':checked')) { selectedIds[id] = true; } else { delete selectedIds[id]; }
+            syncSelectAll();
+            updateBulkActionBar();
+        });
+
+        $(document).on('click', '#bulkClearAll', function () {
+            resetSelection();
+            $('#tableBody .row-select').prop('checked', false);
+        });
+
+        $(document).on('click', '.bulk-btn', function () {
+            var action = $(this).data('bulk');
+            var ids = Object.keys(selectedIds);
+            if (window.DataTablePro && typeof window.DataTablePro.onBulkAction === 'function') {
+                window.DataTablePro.onBulkAction(action, ids);
+                return;
+            }
+            alert('Bulk ' + action + ' for ' + ids.length + ' record(s): [' + ids.join(', ') + ']\n\n(Not implemented — placeholder action)');
+        });
+
         $('#tableBody').on('click', '.action-btn', function () {
             var action = $(this).data('action');
             var id     = $(this).data('id');
@@ -1044,6 +1336,7 @@
             if (currentMode === 'normal') return;
             currentMode = 'normal';
             currentPage = 1;
+            isInitialLoad = true;
             $(this).addClass('active');
             $('#modeGrouped').removeClass('active');
             fetchData();
@@ -1053,6 +1346,7 @@
             if (currentMode === 'grouped') return;
             currentMode = 'grouped';
             currentPage = 1;
+            isInitialLoad = true;
             $(this).addClass('active');
             $('#modeNormal').removeClass('active');
             fetchData();
@@ -1079,6 +1373,29 @@
             loadStateFromUrl();
             fetchData();
         });
+
+        $('#darkModeToggle').on('click', function () {
+            var current = document.documentElement.getAttribute('data-bs-theme');
+            applyTheme(current === 'dark' ? 'light' : 'dark');
+        });
+
+        $('#columnToggleMenu').on('change', '.col-toggle-check', function () {
+            var key = $(this).data('col-key');
+            if ($(this).is(':checked')) {
+                delete hiddenColumns[key];
+            } else {
+                hiddenColumns[key] = true;
+            }
+            saveHiddenColumns();
+            applyColumnVisibility();
+        });
     });
+
+    window.DataTablePro = window.DataTablePro || {};
+    window.DataTablePro.refresh = function () { fetchData(); };
+    window.DataTablePro.getSelectedIds = function () { return Object.keys(selectedIds); };
+    window.DataTablePro.getState = function () {
+        return { page: currentPage, perPage: perPage, search: searchTerm, sort: sortColumn, order: sortDirection, mode: currentMode, filters: columnFilters };
+    };
 
 })(jQuery);

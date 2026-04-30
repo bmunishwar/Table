@@ -154,6 +154,9 @@ class DataTable
             if (!empty($col['type'])) {
                 $def['type'] = $col['type'];
             }
+            if (!empty($col['filter_options'])) {
+                $def['filter_options'] = $col['filter_options'];
+            }
             $defs[] = $def;
         }
         return $defs;
@@ -202,6 +205,7 @@ class DataTable
             'columns'          => $this->getColumnDefs(),
             'primary_key'      => $this->config['primary_key'] ?? null,
             'has_actions'      => !empty($this->config['has_actions']),
+            'actions'          => $this->config['actions'] ?? [],
             'data'             => $rows,
             'total_records'    => $totalRecords,
             'filtered_records' => $filteredRecords,
@@ -395,17 +399,25 @@ class DataTable
     {
         $clean = [];
         foreach ($filters as $col => $value) {
-            $value = trim((string) $value);
-            if ($value === '') {
-                continue;
-            }
             if (!in_array($col, $this->filterableKeys, true)) {
                 continue;
             }
             if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $col)) {
                 continue;
             }
-            $clean[$col] = $value;
+            if (is_array($value)) {
+                $from = isset($value['from']) ? trim((string) $value['from']) : '';
+                $to   = isset($value['to']) ? trim((string) $value['to']) : '';
+                if ($from === '' && $to === '') continue;
+                $range = [];
+                if ($from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) $range['from'] = $from;
+                if ($to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $to))     $range['to'] = $to;
+                if (!empty($range)) $clean[$col] = $range;
+            } else {
+                $value = trim((string) $value);
+                if ($value === '') continue;
+                $clean[$col] = $value;
+            }
         }
         return $clean;
     }
@@ -431,10 +443,23 @@ class DataTable
         $cleanFilters = $this->sanitizeFilters($filters);
         $fi = 0;
         foreach ($cleanFilters as $col => $value) {
-            $param = ":filter{$fi}";
-            $escaped = $this->escapeLikeWildcards($value);
-            $parts[]          = "CAST({$col} AS TEXT) ILIKE {$param} ESCAPE '\\'";
-            $bindings[$param] = "%{$escaped}%";
+            if (is_array($value)) {
+                if (!empty($value['from'])) {
+                    $param = ":filter_from{$fi}";
+                    $parts[]          = "{$col}::date >= {$param}::date";
+                    $bindings[$param] = $value['from'];
+                }
+                if (!empty($value['to'])) {
+                    $param = ":filter_to{$fi}";
+                    $parts[]          = "{$col}::date <= {$param}::date";
+                    $bindings[$param] = $value['to'];
+                }
+            } else {
+                $param = ":filter{$fi}";
+                $escaped = $this->escapeLikeWildcards($value);
+                $parts[]          = "CAST({$col} AS TEXT) ILIKE {$param} ESCAPE '\\'";
+                $bindings[$param] = "%{$escaped}%";
+            }
             $fi++;
         }
 

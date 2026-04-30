@@ -38,6 +38,8 @@ class DataTableWidget
         'page_sizes'        => [5, 10, 25, 50, 100],
         'show_mode_toggle'  => true,
         'show_export'       => true,
+        'show_dark_mode'    => true,
+        'show_column_toggle' => true,
         'brand_name'        => 'DataTablePro',
         'css_path'          => '/assets/css/datatable.css',
         'js_path'           => '/assets/js/datatable.js',
@@ -165,7 +167,7 @@ HTML;
         $html .= <<<HTML
 <div class="d-flex align-items-center gap-2">
     <span class="toolbar-label">Show</span>
-    <select id="pageSize" class="form-select form-select-sm custom-select">
+    <select id="pageSize" class="form-select form-select-sm custom-select" aria-label="Rows per page">
         {$pageSizeOptions}
     </select>
     <span class="toolbar-label">entries</span>
@@ -203,14 +205,36 @@ HTML;
 HTML;
         }
 
+        if ($this->options['show_column_toggle']) {
+            $html .= <<<HTML
+
+<div class="dropdown">
+    <button class="btn btn-sm btn-export dropdown-toggle" type="button" id="columnToggleBtn"
+            data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+        <i class="bi bi-layout-three-columns me-1"></i><span>Columns</span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end export-menu" id="columnToggleMenu"></ul>
+</div>
+HTML;
+        }
+
         $html .= '</div>';
 
-        $html .= <<<HTML
+        $html .= '<div class="col-lg-5 d-flex justify-content-lg-end align-items-center gap-2">';
 
-<div class="col-lg-5 d-flex justify-content-lg-end">
+        if ($this->options['show_dark_mode']) {
+            $html .= <<<HTML
+<button type="button" id="darkModeToggle" class="btn btn-sm btn-icon dark-mode-toggle"
+        aria-label="Toggle dark mode" title="Toggle dark mode">
+    <i class="bi bi-sun-fill"></i>
+</button>
+HTML;
+        }
+
+        $html .= <<<HTML
     <div class="search-wrapper">
         <i class="bi bi-search search-icon"></i>
-        <input type="text" id="searchInput" class="form-control search-input" placeholder="Search...">
+        <input type="text" id="searchInput" class="form-control search-input" placeholder="Search..." aria-label="Search table">
         <button type="button" id="searchClear" class="search-clear d-none" title="Clear search">
             <i class="bi bi-x-lg"></i>
         </button>
@@ -255,10 +279,10 @@ HTML;
 <div class="table-footer">
     <div class="row align-items-center">
         <div class="col-md-5">
-            <span id="tableInfo" class="table-info-text"></span>
+            <span id="tableInfo" class="table-info-text" role="status" aria-live="polite"></span>
         </div>
         <div class="col-md-7 d-flex justify-content-md-end mt-2 mt-md-0">
-            <nav>
+            <nav aria-label="Table pagination">
                 <ul class="pagination modern-pagination mb-0" id="pagination"></ul>
             </nav>
         </div>
@@ -307,6 +331,8 @@ HTML;
             'brandName'       => $this->options['brand_name'],
             'showModeToggle'  => $this->options['show_mode_toggle'],
             'showExport'      => $this->options['show_export'] && !empty($this->options['export_url']),
+            'showDarkMode'    => $this->options['show_dark_mode'],
+            'showColumnToggle' => $this->options['show_column_toggle'],
         ];
     }
 
