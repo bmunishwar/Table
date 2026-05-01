@@ -344,14 +344,16 @@ class DataTable
         $sortColumn = $this->validateSortColumn($sortColumn);
         $sortOrder  = $this->validateSortOrder($sortOrder);
         $selectCols = $this->buildSelectColumns();
+        $maxExport  = (int) ($this->config['max_export_rows'] ?? 10000);
 
         [$whereClause, $bindings] = $this->buildCombinedWhereClause($search, $filters);
 
-        $sql  = "SELECT {$selectCols} FROM {$table} {$whereClause} ORDER BY {$sortColumn} {$sortOrder}";
+        $sql  = "SELECT {$selectCols} FROM {$table} {$whereClause} ORDER BY {$sortColumn} {$sortOrder} LIMIT :export_limit";
         $stmt = $this->db->prepare($sql);
         foreach ($bindings as $param => $val) {
             $stmt->bindValue($param, $val);
         }
+        $stmt->bindValue(':export_limit', $maxExport, PDO::PARAM_INT);
         $stmt->execute();
 
         return $this->applyFormatters($stmt->fetchAll());

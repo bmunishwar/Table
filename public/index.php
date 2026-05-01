@@ -11,6 +11,10 @@ define('BASE_PATH', dirname(__DIR__));
 
 // Simple autoloader
 spl_autoload_register(function (string $class): void {
+    if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $class)) {
+        return;
+    }
+
     $dirs = [
         BASE_PATH . '/config/',
         BASE_PATH . '/models/',
@@ -26,6 +30,12 @@ spl_autoload_register(function (string $class): void {
         }
     }
 });
+
+// Security headers
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: SAMEORIGIN');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
 
 // ---- Simple Router ----
 

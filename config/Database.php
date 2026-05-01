@@ -6,25 +6,23 @@ class Database
 {
     private static ?PDO $instance = null;
 
-    // -- Update these credentials for your environment --
-    private const DB_HOST = 'localhost';
-    private const DB_PORT = '5432';
-    private const DB_NAME = 'table_demo';
-    private const DB_USER = 'postgres';
-    private const DB_PASS = '';
+    private static function env(string $key, string $default): string
+    {
+        return trim((string) ($_ENV[$key] ?? getenv($key) ?: $default));
+    }
 
     public static function getConnection(): PDO
     {
         if (self::$instance === null) {
             $dsn = sprintf(
                 'pgsql:host=%s;port=%s;dbname=%s;connect_timeout=5',
-                self::DB_HOST,
-                self::DB_PORT,
-                self::DB_NAME
+                self::env('DB_HOST', 'localhost'),
+                self::env('DB_PORT', '5432'),
+                self::env('DB_NAME', 'table_demo')
             );
 
             try {
-                self::$instance = new PDO($dsn, self::DB_USER, self::DB_PASS, [
+                self::$instance = new PDO($dsn, self::env('DB_USER', 'postgres'), self::env('DB_PASS', ''), [
                     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                     PDO::ATTR_EMULATE_PREPARES   => false,
