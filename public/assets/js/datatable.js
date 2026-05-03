@@ -45,6 +45,7 @@
     var actionDefs     = [];
     var lastFetchedRows = [];
     var selectedIds    = {};
+    var updatingHash   = false;
     var hiddenColumns  = (function () {
         try { return JSON.parse(localStorage.getItem('dtpro-hidden-cols')) || {}; } catch (e) { return {}; }
     })();
@@ -67,7 +68,7 @@
         if (icon) {
             icon.className = theme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
         }
-        localStorage.setItem('dtpro-theme', theme);
+        try { localStorage.setItem('dtpro-theme', theme); } catch (e) {}
     }
 
     if (config.showDarkMode !== false) {
@@ -142,6 +143,7 @@
     }
 
     function saveStateToUrl() {
+        updatingHash = true;
         var params = new URLSearchParams();
         if (currentPage > 1)                params.set('page', currentPage);
         if (searchTerm)                     params.set('search', searchTerm);
@@ -157,6 +159,7 @@
 
         var hash = params.toString();
         history.replaceState(null, '', hash ? '#' + hash : window.location.pathname);
+        setTimeout(function () { updatingHash = false; }, 0);
     }
 
     function loadStateFromUrl() {
@@ -306,6 +309,7 @@
             url: dataUrl,
             method: 'GET',
             dataType: 'json',
+            timeout: 30000,
             data: reqData,
             success: function (response) {
                 if (response.error) {
@@ -320,6 +324,12 @@
                 hasActions = !!response.has_actions;
                 if (response.actions && response.actions.length > 0) actionDefs = response.actions;
                 lastFetchedRows = response.data || [];
+
+                if (response.total_pages && currentPage > response.total_pages && response.total_pages > 0) {
+                    currentPage = response.total_pages;
+                    fetchData();
+                    return;
+                }
 
                 if (response.mode === 'grouped') {
                     currentColCount = columnDefs.length || 6;
@@ -340,10 +350,14 @@
                 if (status === 'abort') return;
 
                 var msg = 'Failed to load data. Please try again.';
-                try {
-                    var resp = JSON.parse(xhr.responseText);
-                    if (resp && resp.error) msg = resp.error;
-                } catch (e) {}
+                if (status === 'timeout') {
+                    msg = 'Request timed out. Please check your connection and try again.';
+                } else {
+                    try {
+                        var resp = JSON.parse(xhr.responseText);
+                        if (resp && resp.error) msg = resp.error;
+                    } catch (e) {}
+                }
 
                 showError(msg);
                 $('#tableBody').html(emptyStateHtml('exclamation-circle', 'Error loading data'));
@@ -366,6 +380,7 @@
             url: demoUrl,
             method: 'GET',
             dataType: 'json',
+            timeout: 30000,
             success: function (response) {
                 if (response.error) {
                     var cols = (response.columns && response.columns.length) || 5;
@@ -497,7 +512,7 @@
     }
 
     function saveHiddenColumns() {
-        localStorage.setItem('dtpro-hidden-cols', JSON.stringify(hiddenColumns));
+        try { localStorage.setItem('dtpro-hidden-cols', JSON.stringify(hiddenColumns)); } catch (e) {}
     }
 
     function bindFilterEvents() {
@@ -1005,10 +1020,15 @@
             url: exportUrl,
             method: 'GET',
             dataType: 'json',
+            timeout: 30000,
             data: exportData,
             success: function (response) {
                 if (response.error) {
                     showToast('Export failed: ' + response.error, 'error');
+                    return;
+                }
+                if (!response.data || response.data.length === 0) {
+                    showToast('No data to export.', 'info');
                     return;
                 }
                 try {
@@ -1258,6 +1278,7 @@
             var input = $(this);
             debounceTimer = setTimeout(function () {
                 searchTerm  = input.val().trim();
+                if (searchTerm.length > 200) searchTerm = searchTerm.substring(0, 200);
                 currentPage = 1;
                 updateSearchClear();
                 fetchData();
@@ -1371,6 +1392,7 @@
         });
 
         $(window).on('hashchange', function () {
+            if (updatingHash) return;
             loadStateFromUrl();
             fetchData();
         });
@@ -1382,10 +1404,16 @@
 
         $('#columnToggleMenu').on('change', '.col-toggle-check', function () {
             var key = $(this).data('col-key');
-            if ($(this).is(':checked')) {
-                delete hiddenColumns[key];
-            } else {
+            if (!$(this).is(':checked')) {
+                var visibleCount = $('#columnToggleMenu .col-toggle-check:checked').length;
+                if (visibleCount === 0) {
+                    $(this).prop('checked', true);
+                    showToast('At least one column must remain visible.', 'error');
+                    return;
+                }
                 hiddenColumns[key] = true;
+            } else {
+                delete hiddenColumns[key];
             }
             saveHiddenColumns();
             applyColumnVisibility();

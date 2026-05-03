@@ -67,6 +67,25 @@ class DataTable
         $this->db     = $pdo ?? Database::getConnection();
         $this->config = $config;
 
+        // Validate required config keys
+        if (!isset($config['table']) || !is_string($config['table']) || $config['table'] === '') {
+            throw new \InvalidArgumentException('Config "table" must be a non-empty string.');
+        }
+        if (!isset($config['primary_key']) || !is_string($config['primary_key']) || $config['primary_key'] === '') {
+            throw new \InvalidArgumentException('Config "primary_key" must be a non-empty string.');
+        }
+        if (!isset($config['columns']) || !is_array($config['columns']) || empty($config['columns'])) {
+            throw new \InvalidArgumentException('Config "columns" must be a non-empty array.');
+        }
+        foreach ($config['columns'] as $i => $c) {
+            if (!isset($c['key']) || !is_string($c['key']) || $c['key'] === '') {
+                throw new \InvalidArgumentException("Column at index {$i} must have a non-empty string \"key\".");
+            }
+            if (!isset($c['label']) || !is_string($c['label']) || $c['label'] === '') {
+                throw new \InvalidArgumentException("Column at index {$i} must have a non-empty string \"label\".");
+            }
+        }
+
         foreach ($config['columns'] as $col) {
             $this->allKeys[] = $col['key'];
             if (!empty($col['sortable'])) {
@@ -96,6 +115,9 @@ class DataTable
         $page       = max(1, (int) ($_GET['page'] ?? 1));
         $perPage    = (int) ($_GET['per_page'] ?? 10);
         $search     = trim((string) ($_GET['search'] ?? ''));
+        if (mb_strlen($search) > 200) {
+            $search = mb_substr($search, 0, 200);
+        }
         $sortColumn = (string) ($_GET['sort_column'] ?? $config['default_sort'] ?? 'id');
         $sortOrder  = (string) ($_GET['sort_order'] ?? $config['default_order'] ?? 'asc');
         $mode       = (string) ($_GET['mode'] ?? 'normal');
@@ -181,7 +203,6 @@ class DataTable
 
         $sortColumn = $this->validateSortColumn($sortColumn);
         $sortOrder  = $this->validateSortOrder($sortOrder);
-        $offset     = ($page - 1) * $perPage;
 
         [$whereClause, $bindings] = $this->buildCombinedWhereClause($search, $filters);
         $selectCols = $this->buildSelectColumns();
@@ -191,6 +212,14 @@ class DataTable
         $filteredRecords = $hasFilters
             ? $this->countRows($table, $whereClause, $bindings)
             : $totalRecords;
+
+        $totalPages = $filteredRecords > 0 ? (int) ceil($filteredRecords / $perPage) : 0;
+
+        if ($page > $totalPages && $totalPages > 0) {
+            $page = $totalPages;
+        }
+
+        $offset = ($page - 1) * $perPage;
 
         $sql  = "SELECT {$selectCols} FROM {$table} {$whereClause} ORDER BY {$sortColumn} {$sortOrder} LIMIT :limit OFFSET :offset";
         $stmt = $this->db->prepare($sql);
@@ -203,8 +232,6 @@ class DataTable
         $rows = $stmt->fetchAll();
 
         $rows = $this->applyFormatters($rows);
-
-        $totalPages = $filteredRecords > 0 ? (int) ceil($filteredRecords / $perPage) : 0;
 
         return [
             'columns'          => $this->getColumnDefs(),
@@ -404,6 +431,9 @@ class DataTable
 
     private function sanitizeFilters(array $filters): array
     {
+        if (count($filters) > 20) {
+            return [];
+        }
         $clean = [];
         foreach ($filters as $col => $value) {
             if (!in_array($col, $this->filterableKeys, true)) {
@@ -417,8 +447,8 @@ class DataTable
                 $to   = isset($value['to']) ? trim((string) $value['to']) : '';
                 if ($from === '' && $to === '') continue;
                 $range = [];
-                if ($from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) $range['from'] = $from;
-                if ($to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $to))     $range['to'] = $to;
+                if ($from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) && strtotime($from) !== false) $range['from'] = $from;
+                if ($to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) && strtotime($to) !== false)     $range['to'] = $to;
                 if (!empty($range)) $clean[$col] = $range;
             } else {
                 $value = trim((string) $value);
@@ -503,7 +533,12 @@ class DataTable
         foreach ($rows as &$row) {
             foreach ($formatters as $key => $fn) {
                 if (array_key_exists($key, $row)) {
-                    $row[$key] = $fn($row[$key], $row);
+                    try {
+                        $row[$key] = $fn($row[$key], $row);
+                    } catch (\Throwable $e) {
+                        error_log('[DataTable] Formatter error for column "' . $key . '": ' . $e->getMessage());
+                        // Keep original value on formatter failure
+                    }
                 }
             }
         }
