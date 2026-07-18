@@ -1,5 +1,11 @@
 # DataTablePro
 
+![PHP 8+](https://img.shields.io/badge/PHP-8.0+-777BB4?logo=php&logoColor=white)
+![Bootstrap 5](https://img.shields.io/badge/Bootstrap-5.3-7952B3?logo=bootstrap&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)
+![jQuery](https://img.shields.io/badge/jQuery-3.7-0769AD?logo=jquery&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+
 A production-ready, configurable server-side data table module for PHP 8 applications. Built with **no PHP framework** and **no JS plugins** — just clean PHP 8, PostgreSQL, Bootstrap 5, and jQuery.
 
 Drop it into any existing PHP app with 4 files and 3 lines of code.
