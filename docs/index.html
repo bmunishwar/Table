@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataTablePro — Live Demo</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- DataTable Styles -->
+    <link href="../public/assets/css/datatable.css" rel="stylesheet">
+    <style>
+        .demo-header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            padding: 2.5rem 0;
+            margin-bottom: 2rem;
+        }
+        .demo-header h1 { font-weight: 700; font-size: 2rem; margin-bottom: 0.5rem; }
+        .demo-header p { opacity: 0.9; margin-bottom: 0; }
+        .demo-badge { background: rgba(255,255,255,0.2); border-radius: 20px; padding: 0.25rem 0.75rem; font-size: 0.75rem; }
+        .github-link { color: white; text-decoration: none; border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; padding: 0.4rem 1rem; font-size: 0.85rem; transition: all 0.2s; }
+        .github-link:hover { background: rgba(255,255,255,0.15); color: white; }
+        [data-bs-theme="dark"] .demo-header { background: linear-gradient(135deg, #312e81 0%, #4c1d95 100%); }
+    </style>
+</head>
+<body>
+    <div class="demo-header">
+        <div class="container">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <h1>DataTablePro</h1>
+                        <span class="demo-badge">LIVE DEMO</span>
+                    </div>
+                    <p>Production-ready PHP data table — no framework, no JS plugins. Drop-in with 3 lines of code.</p>
+                </div>
+                <a href="https://github.com/bmunishwar/table" class="github-link">
+                    <i class="bi bi-github me-1"></i> View on GitHub
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Page header -->
+        <div class="page-header mb-4">
+            <div class="row align-items-center">
+                <div class="col">
+                    <div class="d-flex align-items-center gap-3 mb-1">
+                        <h3 class="page-title mb-0">User Management</h3>
+                        <span class="badge bg-primary-subtle text-primary rounded-pill fw-500" id="totalBadge"></span>
+                    </div>
+                    <p class="page-subtitle mb-0">Demo with 50 mock records — all features fully functional</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table card -->
+        <div class="table-card">
+            <!-- Toolbar -->
+            <div class="table-toolbar"><div class="row align-items-center g-3">
+                <div class="col-lg-7 d-flex align-items-center gap-3 flex-wrap">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="toolbar-label">Show</span>
+                        <select id="pageSize" class="form-select form-select-sm custom-select" aria-label="Rows per page">
+                            <option value="5">5</option>
+                            <option value="10" selected>10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                        </select>
+                        <span class="toolbar-label">entries</span>
+                    </div>
+                    <div class="mode-toggle" role="group">
+                        <button type="button" class="mode-btn active" id="modeNormal">
+                            <i class="bi bi-list-ul"></i><span>Normal</span>
+                        </button>
+                        <button type="button" class="mode-btn" id="modeGrouped">
+                            <i class="bi bi-collection"></i><span>Grouped</span>
+                        </button>
+                    </div>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-export dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-download me-1"></i><span>Export</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end export-menu">
+                            <li><a class="dropdown-item" href="#" id="exportExcel"><i class="bi bi-file-earmark-spreadsheet text-success me-2"></i>Excel (.xlsx)</a></li>
+                            <li><a class="dropdown-item" href="#" id="exportPdf"><i class="bi bi-file-earmark-pdf text-danger me-2"></i>PDF</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" id="exportCsv"><i class="bi bi-filetype-csv text-primary me-2"></i>CSV</a></li>
+                        </ul>
+                    </div>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-export dropdown-toggle" type="button" id="columnToggleBtn"
+                                data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                            <i class="bi bi-layout-three-columns me-1"></i><span>Columns</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end export-menu" id="columnToggleMenu"></ul>
+                    </div>
+                </div>
+                <div class="col-lg-5 d-flex justify-content-lg-end align-items-center gap-2">
+                    <button type="button" id="darkModeToggle" class="btn btn-sm btn-icon dark-mode-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+                        <i class="bi bi-sun-fill"></i>
+                    </button>
+                    <div class="search-wrapper">
+                        <i class="bi bi-search search-icon"></i>
+                        <input type="text" id="searchInput" class="form-control search-input" placeholder="Search..." aria-label="Search table">
+                        <button type="button" id="searchClear" class="search-clear d-none" title="Clear search">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                        <kbd class="search-shortcut d-none d-md-inline-flex" id="searchShortcut">/</kbd>
+                    </div>
+                </div>
+            </div></div>
+
+            <!-- Table -->
+            <div class="table-container">
+                <div id="loadingOverlay" class="loading-overlay d-none">
+                    <div class="loading-content">
+                        <div class="spinner-ring"></div>
+                        <span class="loading-text">Loading data...</span>
+                    </div>
+                </div>
+                <div id="errorAlert" class="alert-custom d-none">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-octagon-fill text-danger"></i>
+                        <span id="errorMessage">An error occurred.</span>
+                        <button type="button" class="btn-dismiss ms-auto" aria-label="Dismiss">&times;</button>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table modern-table" id="usersTable">
+                        <thead id="tableHead"></thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="table-footer">
+                <div class="row align-items-center">
+                    <div class="col-md-5">
+                        <span id="tableInfo" class="table-info-text" role="status" aria-live="polite"></span>
+                    </div>
+                    <div class="col-md-7 d-flex justify-content-md-end mt-2 mt-md-0">
+                        <nav aria-label="Table pagination">
+                            <ul class="pagination modern-pagination mb-0" id="pagination"></ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer" style="z-index:1090"></div>
+
+        <!-- Features section -->
+        <div class="mt-5 mb-4">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <div class="table-card p-3">
+                        <h6 class="mb-2"><i class="bi bi-lightning-charge text-warning me-2"></i>Zero Dependencies</h6>
+                        <p class="text-muted mb-0" style="font-size:0.82rem">No PHP framework required. Works with vanilla PHP 8, Laravel, Symfony, CodeIgniter — anything.</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="table-card p-3">
+                        <h6 class="mb-2"><i class="bi bi-shield-check text-success me-2"></i>Secure by Default</h6>
+                        <p class="text-muted mb-0" style="font-size:0.82rem">Parameterized queries, XSS-safe rendering, security headers, input validation — OWASP-compliant out of the box.</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="table-card p-3">
+                        <h6 class="mb-2"><i class="bi bi-gear text-primary me-2"></i>One Config Array</h6>
+                        <p class="text-muted mb-0" style="font-size:0.82rem">Define columns, types, formatters, grouping, and actions in a single PHP array. The table handles the rest.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- jQuery -->
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- SheetJS for Excel/CSV -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <!-- jsPDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+
+    <script>
+    // ---- Mock Data ----
+    var MOCK_USERS = (function () {
+        var firstNames = ['James','Mary','Robert','Patricia','John','Jennifer','Michael','Linda','David','Elizabeth','William','Barbara','Richard','Susan','Joseph','Jessica','Thomas','Sarah','Christopher','Karen','Charles','Lisa','Daniel','Nancy','Matthew','Betty','Anthony','Margaret','Mark','Sandra','Donald','Ashley','Steven','Dorothy','Paul','Kimberly','Andrew','Emily','Joshua','Donna','Kenneth','Michelle','Kevin','Carol','Brian','Amanda','George','Melissa','Timothy','Deborah'];
+        var lastNames = ['Smith','Johnson','Williams','Brown','Jones','Garcia','Miller','Davis','Rodriguez','Martinez','Hernandez','Lopez','Gonzalez','Wilson','Anderson','Thomas','Taylor','Moore','Jackson','Martin','Lee','Perez','Thompson','White','Harris','Sanchez','Clark','Ramirez','Lewis','Robinson','Walker','Young','Allen','King','Wright','Scott','Torres','Nguyen','Hill','Flores','Green','Adams','Nelson','Baker','Hall','Rivera','Campbell','Mitchell','Carter','Roberts'];
+        var departments = ['Engineering','Marketing','Sales','Support','HR','Finance','Design','Operations'];
+        var statuses = ['Active','Active','Active','Active','Inactive','Pending'];
+        var users = [];
+        for (var i = 1; i <= 50; i++) {
+            var first = firstNames[i - 1];
+            var last = lastNames[i - 1];
+            var dept = departments[(i - 1) % departments.length];
+            var status = statuses[(i - 1) % statuses.length];
+            var joined = '2023-' + String(((i - 1) % 12) + 1).padStart(2, '0') + '-' + String(((i * 7) % 28) + 1).padStart(2, '0');
+            users.push({
+                id: i,
+                name: first + ' ' + last,
+                email: first.toLowerCase() + '.' + last.toLowerCase() + '@example.com',
+                department: dept,
+                status: status,
+                joined: joined
+            });
+        }
+        return users;
+    })();
+
+    var COLUMNS = [
+        { key: 'id', label: 'ID', sortable: true, searchable: false, filterable: false, type: 'id' },
+        { key: 'name', label: 'Name', sortable: true, searchable: true, filterable: true, type: 'name' },
+        { key: 'email', label: 'Email', sortable: true, searchable: true, filterable: true, type: 'email' },
+        { key: 'department', label: 'Department', sortable: true, searchable: true, filterable: true, filter_options: ['Engineering','Marketing','Sales','Support','HR','Finance','Design','Operations'] },
+        { key: 'status', label: 'Status', sortable: true, searchable: false, filterable: true, type: 'status', filter_options: ['Active','Inactive','Pending'] },
+        { key: 'joined', label: 'Joined', sortable: true, searchable: false, filterable: true, type: 'date' }
+    ];
+
+    // ---- DataTable Config ----
+    window.DataTableConfig = {
+        dataUrl: '/api/data',
+        exportUrl: '/api/export',
+        demoUrl: '',
+        defaultSort: 'id',
+        defaultOrder: 'asc',
+        defaultPageSize: 10,
+        brandName: 'DataTablePro',
+        showModeToggle: true,
+        showExport: true,
+        showDarkMode: true,
+        showColumnToggle: true
+    };
+
+    // ---- Mock AJAX Interceptor ----
+    $.ajaxPrefilter(function (options, originalOptions, jqXHR) {
+        if (options.url === '/api/data' || options.url === '/api/export') {
+            jqXHR.abort();
+
+            var params = originalOptions.data || {};
+            var page = parseInt(params.page, 10) || 1;
+            var perPage = parseInt(params.per_page, 10) || 10;
+            var search = (params.search || '').toLowerCase();
+            var sortCol = params.sort_column || 'id';
+            var sortOrder = params.sort_order || 'asc';
+            var mode = params.mode || 'normal';
+            var filters = params.filters || {};
+
+            // Filter
+            var filtered = MOCK_USERS.filter(function (u) {
+                if (search) {
+                    var haystack = (u.name + ' ' + u.email + ' ' + u.department).toLowerCase();
+                    if (haystack.indexOf(search) === -1) return false;
+                }
+                for (var key in filters) {
+                    var fv = filters[key];
+                    if (typeof fv === 'string' && fv) {
+                        if (String(u[key]).toLowerCase().indexOf(fv.toLowerCase()) === -1) return false;
+                    }
+                }
+                return true;
+            });
+
+            // Sort
+            filtered.sort(function (a, b) {
+                var va = a[sortCol], vb = b[sortCol];
+                if (typeof va === 'number') return sortOrder === 'asc' ? va - vb : vb - va;
+                va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+                if (va < vb) return sortOrder === 'asc' ? -1 : 1;
+                if (va > vb) return sortOrder === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            var totalRecords = MOCK_USERS.length;
+            var filteredRecords = filtered.length;
+
+            // Handle export
+            if (options.url === '/api/export') {
+                var response = { columns: COLUMNS, data: filtered };
+                setTimeout(function () { originalOptions.success(response); if (originalOptions.complete) originalOptions.complete({}, 'success'); }, 100);
+                return;
+            }
+
+            // Grouped mode
+            if (mode === 'grouped') {
+                var groups = {};
+                filtered.forEach(function (u) {
+                    var g = u.department;
+                    if (!groups[g]) groups[g] = [];
+                    groups[g].push(u);
+                });
+
+                var groupedRows = [];
+                var groupKeys = Object.keys(groups).sort();
+                groupKeys.forEach(function (gk) {
+                    var items = groups[gk];
+                    items.forEach(function (item, idx) {
+                        var row = [];
+                        if (idx === 0) {
+                            row.push({ value: gk, rowspan: items.length, class: '' });
+                        } else {
+                            row.push({ skip: true });
+                        }
+                        row.push({ value: String(item.id) });
+                        row.push({ value: item.name });
+                        row.push({ value: item.email });
+                        row.push({ value: item.status });
+                        row.push({ value: item.joined });
+                        groupedRows.push(row);
+                    });
+                    row = [{ value: gk + ': ' + items.length + ' member(s)', colspan: 6, class: 'text-muted fw-500', html: false }];
+                    groupedRows.push(row);
+                });
+
+                var totalPages = Math.ceil(groupedRows.length / perPage) || 1;
+                if (page > totalPages) page = totalPages;
+                var pageRows = groupedRows.slice((page - 1) * perPage, page * perPage);
+
+                var response = {
+                    columns: [{key:'department',label:'Department'},{key:'id',label:'ID'},{key:'name',label:'Name'},{key:'email',label:'Email'},{key:'status',label:'Status'},{key:'joined',label:'Joined'}],
+                    data: pageRows,
+                    total_records: totalRecords,
+                    filtered_records: filteredRecords,
+                    current_page: page,
+                    per_page: perPage,
+                    total_pages: totalPages,
+                    mode: 'grouped',
+                    sort_column: sortCol,
+                    sort_order: sortOrder
+                };
+                setTimeout(function () { originalOptions.success(response); if (originalOptions.complete) originalOptions.complete({}, 'success'); }, 150);
+                return;
+            }
+
+            // Normal mode — paginate
+            var totalPages = Math.ceil(filteredRecords / perPage) || 1;
+            if (page > totalPages) page = totalPages;
+            var start = (page - 1) * perPage;
+            var pageData = filtered.slice(start, start + perPage);
+
+            var response = {
+                columns: COLUMNS,
+                data: pageData,
+                primary_key: 'id',
+                has_actions: true,
+                actions: [
+                    { key: 'view', label: 'View', icon: 'bi-eye', class: 'btn-view' },
+                    { key: 'edit', label: 'Edit', icon: 'bi-pencil', class: 'btn-edit' }
+                ],
+                total_records: totalRecords,
+                filtered_records: filteredRecords,
+                current_page: page,
+                per_page: perPage,
+                total_pages: totalPages,
+                sort_column: sortCol,
+                sort_order: sortOrder
+            };
+
+            setTimeout(function () { originalOptions.success(response); if (originalOptions.complete) originalOptions.complete({}, 'success'); }, 150);
+        }
+    });
+    </script>
+
+    <!-- DataTable JS -->
+    <script src="../public/assets/js/datatable.js"></script>
+</body>
+</html>
