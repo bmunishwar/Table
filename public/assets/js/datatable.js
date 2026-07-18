@@ -344,6 +344,7 @@
                 renderPagination(response);
                 renderInfo(response);
                 updateSearchClear();
+                updateFilterBadge();
                 resetSelection();
             },
             error: function (xhr, status) {
@@ -547,6 +548,7 @@
             var col = $(this).data('column');
             var val = $(this).val();
             if (val) { columnFilters[col] = val; } else { delete columnFilters[col]; }
+            $(this).toggleClass('has-value', !!val);
             currentPage = 1;
             fetchData();
         });
@@ -557,6 +559,7 @@
             var current = columnFilters[col];
             if (!current || typeof current !== 'object') current = {};
             var val = $(this).val();
+            $(this).toggleClass('has-value', !!val);
             if (val) { current[range] = val; } else { delete current[range]; }
             if (Object.keys(current).length > 0) { columnFilters[col] = current; } else { delete columnFilters[col]; }
             currentPage = 1;
@@ -881,6 +884,22 @@
         }
     }
 
+    function updateFilterBadge() {
+        var count = Object.keys(columnFilters).length;
+        var $badge = $('#filterBadge');
+        if (count > 0) {
+            if (!$badge.length) {
+                $('#columnToggleBtn').parent().before(
+                    '<span class="badge bg-primary-subtle text-primary rounded-pill fw-500" id="filterBadge">' + count + ' filter' + (count > 1 ? 's' : '') + '</span>'
+                );
+            } else {
+                $badge.text(count + ' filter' + (count > 1 ? 's' : '')).removeClass('d-none');
+            }
+        } else {
+            $badge.addClass('d-none');
+        }
+    }
+
     // ---- UI Helpers ----
 
     function showLoading(show) {
@@ -900,6 +919,11 @@
     function showError(msg) {
         $('#errorMessage').text(msg);
         $('#errorAlert').removeClass('d-none');
+        if (!$('#errorAlert .btn-dismiss').length) {
+            $('#errorAlert .d-flex').append('<button type="button" class="btn-dismiss ms-auto" aria-label="Dismiss">&times;</button>');
+        }
+        clearTimeout(showError._timer);
+        showError._timer = setTimeout(function () { hideError(); }, 15000);
     }
 
     function hideError() {
@@ -1374,6 +1398,8 @@
             fetchData();
         });
 
+        $('#errorAlert').on('click', '.btn-dismiss', function () { hideError(); });
+
         if (config.showExport && exportUrl) {
             $('#exportExcel').on('click', function (e) { e.preventDefault(); exportExcel(); });
             $('#exportPdf').on('click',   function (e) { e.preventDefault(); exportPdf(); });
@@ -1388,6 +1414,21 @@
             if (e.key === 'Escape' && $(e.target).is('#searchInput')) {
                 e.preventDefault();
                 $('#searchInput').blur();
+            }
+            if (e.key === 'ArrowLeft' && !$(e.target).is('input, textarea, select') && currentPage > 1) {
+                e.preventDefault();
+                currentPage--;
+                scrollToTable();
+                fetchData();
+            }
+            if (e.key === 'ArrowRight' && !$(e.target).is('input, textarea, select')) {
+                e.preventDefault();
+                var totalPages = parseInt($('#pagination .page-item:not(.disabled):not(.active)').last().find('.page-link').data('page'), 10) || currentPage;
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    scrollToTable();
+                    fetchData();
+                }
             }
         });
 
@@ -1425,6 +1466,35 @@
     window.DataTablePro.getSelectedIds = function () { return Object.keys(selectedIds); };
     window.DataTablePro.getState = function () {
         return { page: currentPage, perPage: perPage, search: searchTerm, sort: sortColumn, order: sortDirection, mode: currentMode, filters: columnFilters };
+    };
+    window.DataTablePro.setSearch = function (term) {
+        searchTerm = String(term || '').substring(0, 200);
+        $('#searchInput').val(searchTerm);
+        currentPage = 1;
+        updateSearchClear();
+        fetchData();
+    };
+    window.DataTablePro.setFilter = function (col, val) {
+        if (val) { columnFilters[col] = val; } else { delete columnFilters[col]; }
+        currentPage = 1;
+        fetchData();
+    };
+    window.DataTablePro.clearFilters = function () {
+        columnFilters = {};
+        $('#tableHead .column-filter').val('');
+        $('#tableHead .column-filter-clear').addClass('d-none');
+        $('#tableHead .column-filter-select').val('').removeClass('has-value');
+        $('#tableHead .column-filter-date').val('').removeClass('has-value');
+        currentPage = 1;
+        fetchData();
+    };
+    window.DataTablePro.goToPage = function (page) {
+        page = parseInt(page, 10);
+        if (page > 0) {
+            currentPage = page;
+            scrollToTable();
+            fetchData();
+        }
     };
 
 })(jQuery);

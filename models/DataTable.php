@@ -134,6 +134,7 @@ class DataTable
         }
 
         $status = 200;
+        $startTime = hrtime(true);
         try {
             if ($action === 'export') {
                 $result = [
@@ -158,6 +159,9 @@ class DataTable
                 'total_pages'      => 0,
             ];
         }
+
+        $elapsed = (hrtime(true) - $startTime) / 1e6;
+        header(sprintf('Server-Timing: query;dur=%.1f', $elapsed));
 
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');

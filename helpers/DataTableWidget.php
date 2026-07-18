@@ -265,6 +265,7 @@ HTML;
         <div class="d-flex align-items-center gap-2">
             <i class="bi bi-exclamation-octagon-fill text-danger"></i>
             <span id="errorMessage">An error occurred.</span>
+            <button type="button" class="btn-dismiss ms-auto" aria-label="Dismiss">&times;</button>
         </div>
     </div>
     <div class="table-responsive">
